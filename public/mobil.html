@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>InspireIT Şans Çarkı</title>
+<link rel="icon" href="data:,">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   body {
@@ -116,7 +117,7 @@
   .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* Sonuç */
-  #resultScreen { display: none; text-align: center; padding: 20px 0; }
+  #resultScreen { display: none; text-align: center; }
   .emoji-big {
     font-size: 5rem;
     margin: 20px 0;
@@ -200,6 +201,30 @@
   @keyframes fall {
     to { transform: translateY(110vh) rotate(720deg); opacity: 0.3; }
   }
+
+  .wheel-wrap { position: relative; width: min(100%, 320px); aspect-ratio: 1; margin: 6px auto 14px; }
+  .wheel-wrap canvas { width: 100%; height: 100%; display: block; }
+  .wheel-wrap .pointer { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); width: 0; height: 0;
+    border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 28px solid #fbbf24; z-index: 10;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+  #countdown { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11;
+    font-size: 7rem; font-weight: 900; color: #fff; text-shadow: 0 0 30px rgba(245,158,11,.9), 0 4px 12px rgba(0,0,0,.7); pointer-events: none; }
+  #countdown.on { display: flex; animation: cd .9s ease-out; }
+  @keyframes cd { 0% { transform: scale(2); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(.9); opacity: .9; } }
+  .hello { text-align: center; color: #cbd5e1; font-size: .95rem; margin-bottom: 4px; }
+  .chip { display: inline-block; padding: 4px 12px; border-radius: 999px; background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.4);
+    color: #fbbf24; font-size: .8rem; font-weight: 700; }
+  .center { text-align: center; }
+  .status-title { font-size: 1.25rem; font-weight: 800; text-align: center; margin: 6px 0; }
+  .status-sub { color: #94a3b8; font-size: .92rem; line-height: 1.5; text-align: center; min-height: 1.4em; }
+  .form-err { display: none; margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(239,68,68,.12);
+    border: 1px solid rgba(239,68,68,.5); color: #fecaca; font-size: .88rem; line-height: 1.4; }
+  .form-err.on { display: block; }
+  .ghost-btn { margin-top: 14px; padding: 12px 22px; border-radius: 12px; border: 1px solid rgba(255,255,255,.25); background: transparent;
+    color: #cbd5e1; font-size: .9rem; cursor: pointer; }
+  .qpos { font-size: 2.4rem; font-weight: 900; text-align: center; color: #fbbf24; line-height: 1.1; }
+  .offline { display: none; margin: 10px auto 0; text-align: center; font-size: .8rem; color: #fca5a5; }
+  .offline.on { display: block; }
 </style>
 </head>
 <body>
@@ -209,7 +234,7 @@
     <img src="/logo.png" alt="InspireIT">
   </div>
 
-  <div class="card" id="formCard">
+  <div class="card" id="formCard" style="display:none">
     <h1>🎉 Hoş Geldiniz!</h1>
     <p class="lead">InspireIT Şans Çarkına hoş geldiniz.<br>Lütfen aşağıdaki bilgileri doldurunuz.</p>
 
@@ -227,7 +252,7 @@
       <div class="field" id="fPhone">
         <label>GSM Numarası *</label>
         <input type="tel" name="phone" required placeholder="05XX XXX XX XX">
-        <div class="err-msg">Geçerli bir telefon numarası girin (10-13 hane)</div>
+        <div class="err-msg">Geçerli bir cep numarası girin (05XX XXX XX XX)</div>
       </div>
       <div class="field" id="fEmail">
         <label>Email Adresi *</label>
@@ -244,328 +269,318 @@
         <label for="consent">InspireIT A.Ş.'nin yukarıdaki verdiğim bilgilerden bana ulaşmasına izin veriyorum.</label>
       </div>
 
+      <div class="form-err" id="formErr" role="alert"></div>
       <button type="submit" class="submit-btn" id="spinBtn">🎡 ÇARKI ÇEVİR</button>
     </form>
   </div>
 
   <div class="card" id="resultScreen">
-    <div class="mini-wheel-wrap">
+    <div class="hello" id="hello"></div>
+    <div class="center"><span class="chip" id="spinsChip">Çevirme hakkı: 1</span></div>
+    <div class="wheel-wrap" style="margin-top:16px">
       <div class="pointer"></div>
       <canvas id="miniWheelCanvas" width="700" height="700"></canvas>
+      <div id="countdown"></div>
     </div>
-    <div class="emoji-big" id="resultEmoji">🎁</div>
-    <div class="result-title" id="resultTitle">-</div>
-    <div class="result-prize" id="prizeText">-</div>
-    <div class="result-sub" id="resultSub"></div>
-    <button class="action-btn" id="actionBtn" style="display:none;"></button>
+
+    <div id="queueBox" style="display:none;">
+      <div class="status-sub">Çarktaki sıran</div>
+      <div class="qpos" id="qPos">-</div>
+      <div class="status-sub" id="qSub"></div>
+      <div class="center"><button class="ghost-btn" id="leaveBtn">Sıradan çık</button></div>
+    </div>
+
+    <div id="statusBox">
+      <div class="emoji-big" id="resultEmoji" style="display:none;">🎁</div>
+      <div class="status-title" id="resultTitle"></div>
+      <div class="result-prize" id="prizeText" style="font-size:1.8rem;"></div>
+      <div class="status-sub" id="resultSub"></div>
+      <div class="center"><button class="action-btn" id="actionBtn" style="display:none;"></button></div>
+    </div>
+    <div class="offline" id="offlineMsg">Bağlantı yeniden deneniyor...</div>
   </div>
 
 </div>
 
+<script src="/wheel-core.js"></script>
 <script>
-const COLOR_BY_TYPE = {
-  gift:  ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316','#14b8a6'],
-  lose:  ['#334155','#475569','#1e293b','#3f3f46','#52525b'],
-  again: ['#0ea5e9','#06b6d4','#0284c7'],
-  task:  ['#a855f7','#d946ef','#8b5cf6','#c026d3'],
-};
-function pickColor(slice, index) {
-  const palette = COLOR_BY_TYPE[slice.type] || COLOR_BY_TYPE.gift;
-  return palette[index % palette.length];
+var WC = window.WheelCore;
+var $ = function (id) { return document.getElementById(id); };
+var LS = { token: 'isc_token', name: 'isc_name', last: 'isc_last', waiting: 'isc_waiting' };
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+var slices = [];
+var participant = null;          // { name, token }
+var spinsLeft = 0;
+var clock = WC.createClock('/api/time');
+var canvas = $('miniWheelCanvas');
+var renderer = WC.createRenderer(canvas);
+var rot = 0, lastTs = performance.now();
+var anim = null;                 // çalışan çevirme
+var mode = 'form';               // form | ready | waiting | spin | result
+var pollTimer = null, pollGen = 0, wakeLock = null;
+
+/* ---------- yardımcılar ---------- */
+function vibrate(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+async function postJSON(url, body) {
+  var t0 = Date.now();
+  var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  var t1 = Date.now();
+  var data = {};
+  try { data = await r.json(); } catch (e) {}
+  if (data && data.serverNow && t1 - t0 < 1500) clock.set(data.serverNow, t0, t1);
+  return { ok: r.ok, status: r.status, data: data };
 }
-
-let slices = [];
-let participant = null;
-let spinLocked = false;
-
-function drawWheel(canvas, rotation, activeSlices) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W/2, cy = H/2;
-  const radius = Math.min(W,H)/2 - 10;
-  ctx.clearRect(0,0,W,H);
-
-  const n = activeSlices.length;
-  if (n === 0) {
-    ctx.fillStyle = '#334155';
-    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.fill();
-    return;
-  }
-
-  const arc = 2*Math.PI / n;
-  for (let i = 0; i < n; i++) {
-    const start = rotation + i*arc;
-    const end = start + arc;
-    const s = activeSlices[i];
-
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius, start, end);
-    ctx.closePath();
-    ctx.fillStyle = pickColor(s, i);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = W*0.004;
-    ctx.stroke();
-
-    const mid = start + arc/2;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(mid);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur = 6;
-    const fontSize = Math.max(W*0.018, Math.min(W*0.030, W*0.35/n + W*0.012));
-    ctx.font = `900 ${fontSize}px sans-serif`;
-    let txt = s.name;
-    const maxChars = n <= 8 ? 26 : n <= 12 ? 20 : 16;
-    if (txt.length > maxChars) txt = txt.substring(0, maxChars-1) + '…';
-    ctx.fillText(txt, radius*0.95, 0);
-    ctx.restore();
-  }
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, W*0.085, 0, 2*Math.PI);
-  ctx.fillStyle = '#0f172a';
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = W*0.009;
-  ctx.stroke();
-}
-
-function launchConfetti() {
-  const container = document.createElement('div');
-  container.className = 'confetti';
-  const colors = ['#f59e0b','#ef4444','#10b981','#3b82f6','#8b5cf6','#ec4899','#fbbf24'];
-  for (let i = 0; i < 80; i++) {
-    const piece = document.createElement('i');
-    piece.style.left = Math.random()*100 + 'vw';
-    piece.style.background = colors[Math.floor(Math.random()*colors.length)];
-    piece.style.animationDuration = (2 + Math.random()*2) + 's';
-    piece.style.animationDelay = (Math.random()*0.5) + 's';
-    container.appendChild(piece);
-  }
-  document.body.appendChild(container);
-  setTimeout(() => container.remove(), 5000);
-}
-
 async function fetchSlices() {
-  try {
-    const r = await fetch('/api/slices');
-    const data = await r.json();
-    slices = data.slices || [];
-  } catch(e) { console.error(e); }
+  try { var r = await fetch('/api/slices'); var d = await r.json(); if (d.slices && d.slices.length) slices = d.slices; } catch (e) {}
 }
-
-// Validasyon
-function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
-}
+function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email); }
 function isValidPhone(phone) {
-  const d = phone.replace(/\D/g, '');
-  return d.length >= 10 && d.length <= 13;
+  var d = phone.replace(/\D/g, '');
+  if (d.startsWith('0090') && d.length === 14) d = d.slice(4);
+  else if (d.startsWith('90') && d.length === 12) d = d.slice(2);
+  else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
+  return /^5\d{9}$/.test(d);
 }
-
-function showFieldError(fieldId, show) {
-  const el = document.getElementById(fieldId);
-  if (show) el.classList.add('error');
-  else el.classList.remove('error');
-}
-
-const form = document.getElementById('giftForm');
-const spinBtn = document.getElementById('spinBtn');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  const fd = new FormData(form);
-  const name = fd.get('name').trim();
-  const company = fd.get('company').trim();
-  const phone = fd.get('phone').trim();
-  const email = fd.get('email').trim();
-
-  let hasError = false;
-  showFieldError('fName', name.length < 3);
-  if (name.length < 3) hasError = true;
-  showFieldError('fCompany', company.length < 2);
-  if (company.length < 2) hasError = true;
-  showFieldError('fPhone', !isValidPhone(phone));
-  if (!isValidPhone(phone)) hasError = true;
-  showFieldError('fEmail', !isValidEmail(email));
-  if (!isValidEmail(email)) hasError = true;
-
-  if (hasError) return;
-
-  if (!document.getElementById('terms').checked || !document.getElementById('consent').checked) {
-    alert('Lütfen onay kutularını işaretleyin.');
-    return;
-  }
-
-  spinBtn.disabled = true;
-  spinBtn.textContent = 'Çark hazırlanıyor...';
-
-  participant = { name, company, phone, email };
-
-  document.getElementById('formCard').style.display = 'none';
-  document.getElementById('resultScreen').style.display = 'block';
-
-  await fetchSlices();
-
-  let response;
+function showFieldError(id, show) { $(id).classList.toggle('error', !!show); }
+function formError(msg) { var e = $('formErr'); e.textContent = msg || ''; e.classList.toggle('on', !!msg); }
+async function keepAwake(on) {
   try {
-    const r = await fetch('/api/spin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(participant)
-    });
-    response = await r.json();
-  } catch(err) {
-    alert('Bağlantı hatası, tekrar deneyin.');
-    spinBtn.disabled = false;
-    spinBtn.textContent = '🎡 ÇARKI ÇEVİR';
-    document.getElementById('formCard').style.display = 'block';
-    document.getElementById('resultScreen').style.display = 'none';
-    return;
+    if (on && navigator.wakeLock && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', function () { wakeLock = null; }); }
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && (mode === 'waiting' || mode === 'spin')) keepAwake(true); });
+
+function confetti() {
+  var c = document.createElement('div'); c.className = 'confetti';
+  var colors = ['#f59e0b', '#e0307f', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#fbbf24'];
+  for (var i = 0; i < 80; i++) {
+    var p = document.createElement('i');
+    p.style.left = Math.random() * 100 + 'vw'; p.style.background = colors[Math.floor(Math.random() * colors.length)];
+    p.style.animationDuration = (2 + Math.random() * 2) + 's'; p.style.animationDelay = (Math.random() * 0.5) + 's';
+    c.appendChild(p);
   }
+  document.body.appendChild(c); setTimeout(function () { c.remove(); }, 5000);
+}
 
-  if (!response.slice) {
-    alert('Hata: ' + (response.error || 'bilinmeyen'));
-    spinBtn.disabled = false;
-    spinBtn.textContent = '🎡 ÇARKI ÇEVİR';
-    document.getElementById('formCard').style.display = 'block';
-    document.getElementById('resultScreen').style.display = 'none';
-    return;
+/* ---------- ekranlar ---------- */
+function showView(m) {
+  mode = m;
+  $('formCard').style.display = m === 'form' ? 'block' : 'none';
+  $('resultScreen').style.display = m === 'form' ? 'none' : 'block';
+  $('queueBox').style.display = m === 'waiting' ? 'block' : 'none';
+  $('statusBox').style.display = m === 'waiting' ? 'none' : 'block';
+  if (m !== 'spin') $('countdown').classList.remove('on');
+}
+function setChip() {
+  $('spinsChip').textContent = 'Çevirme hakkı: ' + spinsLeft;
+  $('hello').textContent = participant ? 'Merhaba ' + participant.name.split(' ')[0] : '';
+}
+function setStatus(emoji, title, prize, sub) {
+  var e = $('resultEmoji'); e.style.display = emoji ? 'block' : 'none'; e.textContent = emoji || '';
+  $('resultTitle').textContent = title || ''; $('prizeText').textContent = prize || ''; $('resultSub').innerHTML = sub || '';
+}
+function setButton(label, handler) {
+  var b = $('actionBtn');
+  if (!label) { b.style.display = 'none'; b.onclick = null; return; }
+  b.style.display = 'inline-block'; b.textContent = label; b.onclick = handler;
+}
+
+function showReady() {
+  showView('ready'); setChip(); anim = null;
+  if (spinsLeft > 0) { setStatus('', 'Çark seni bekliyor', '', 'Hazır olduğunda butona bas. Çark meşgulse sıraya alınırsın.'); setButton('🎡 Çarkı çevir', joinQueue); }
+  else { setStatus('', '', '', ''); setButton(null); }
+}
+
+function showResult(slice, left, quiet) {
+  showView('result'); spinsLeft = left; setChip();
+  var again = left > 0;
+  if (slice.type === 'gift') {
+    setStatus('🎉', 'TEBRİKLER!', slice.name, 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.');
+    if (!quiet) { confetti(); vibrate([80, 60, 80, 60, 200]); }
+  } else if (slice.type === 'lose') {
+    setStatus('😢', 'ÜZGÜNÜZ...', slice.name, 'Bu sefer şans yaver gitmedi.<br>Bizi tercih ettiğiniz için teşekkürler!');
+    if (!quiet) vibrate(120);
+  } else if (slice.type === 'again') {
+    setStatus('🔄', 'BİR HAK DAHA!', slice.name, 'Ücretsiz bir çevirme hakkı kazandınız!');
+    if (!quiet) vibrate([60, 40, 60]);
+  } else if (slice.type === 'task') {
+    setStatus('🎭', 'EĞLENCELİ GÖREV!', slice.name, 'Görevi tamamladıysan butona bas ve ekstra çevirme hakkını kullan!');
+    if (!quiet) vibrate([60, 40, 60]);
   }
+  if (again) setButton(slice.type === 'task' ? '✅ Görevi yaptım, tekrar çevir' : '🎡 Tekrar çevir', joinQueue);
+  else setButton(null);
+  keepAwake(false);
+}
 
-  const chosen = response.slice;
-  if (!participant.id) participant.id = response.participantId;
-  if (response.slices) slices = response.slices;
+/* ---------- sıra ve çevirme ---------- */
+function stopPolling() { pollGen++; clearTimeout(pollTimer); lsDel(LS.waiting); }
 
-  // Çark animasyonu
-  const canvas = document.getElementById('miniWheelCanvas');
-  const n = slices.length;
-  const arc = 2*Math.PI / n;
-  let chosenIndex = slices.findIndex(s => s.id === chosen.id);
-  if (chosenIndex === -1) chosenIndex = 0;
-
-  const turns = 5 + Math.floor(Math.random()*3);
-  const targetMod = ((-Math.PI/2 - chosenIndex*arc - arc/2) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
-  const targetRotation = turns * 2 * Math.PI + targetMod;
-
-  const duration = 5500;
-  const startTime = performance.now();
-  function easeOutCubic(t) { return 1 - Math.pow(1-t, 3); }
-
-  function frame(now) {
-    const t = Math.min((now - startTime) / duration, 1);
-    const rot = targetRotation * easeOutCubic(t);
-    drawWheel(canvas, rot, slices);
-    if (t < 1) {
-      requestAnimationFrame(frame);
-    } else {
-      spinLocked = false;
-      showResult(chosen);
+function joinQueue() {
+  if (!participant) return;
+  stopPolling();
+  var gen = pollGen;
+  lsSet(LS.waiting, String(Date.now()));
+  showView('waiting'); setChip();
+  $('qPos').textContent = '...'; $('qSub').textContent = 'Çark ile bağlantı kuruluyor';
+  keepAwake(true);
+  var failures = 0;
+  (async function poll() {
+    if (gen !== pollGen) return;
+    var r = null;
+    try { r = await postJSON('/api/spin', { token: participant.token }); } catch (e) { r = null; }
+    if (gen !== pollGen) return;
+    if (!r) {
+      failures++; $('offlineMsg').classList.add('on');
+      pollTimer = setTimeout(poll, 1500); return;
     }
+    $('offlineMsg').classList.remove('on');
+    var d = r.data || {};
+    if (r.status === 200 && d.slice) { stopPolling(); beginSpin(d); return; }
+    if (r.status === 202 && d.queued) {
+      lsSet(LS.waiting, String(Date.now()));
+      var secs = Math.max(0, Math.round((d.waitMs || 0) / 1000));
+      $('qPos').textContent = d.position + ' / ' + d.total;
+      $('qSub').innerHTML = d.position === 1
+        ? (secs > 2 ? 'Sıradaki sensin. Çark yaklaşık ' + secs + ' sn içinde senin için dönecek.' : 'Sıra sende, çark hazırlanıyor...')
+        : 'Çark şu an başka bir katılımcı için dönüyor.<br>Tahmini bekleme: yaklaşık ' + secs + ' sn.<br>Sıran gelince çark otomatik dönecek, ekranı kapatma.';
+      var next = Math.min(1500, Math.max(500, (d.freeInMs || 0) + 150));
+      if (!d.freeInMs && d.position > 1) next = 1500;
+      pollTimer = setTimeout(poll, next); return;
+    }
+    if (r.status === 503) {
+      $('qPos').textContent = '⏸'; $('qSub').textContent = d.error || 'Çark kısa süreliğine durduruldu. Otomatik olarak tekrar denenecek.';
+      pollTimer = setTimeout(poll, 4000); return;
+    }
+    if (r.status === 401) { forgetSession(); return; }
+    stopPolling(); keepAwake(false);
+    if (r.status === 403) { await refreshMe(); showReady(); return; }
+    showView('result');
+    setStatus('⚠️', 'ÇEVİRME YAPILAMADI', '', d.error || 'Lütfen tekrar deneyin.');
+    setButton('🔄 Tekrar dene', joinQueue);
+  })();
+}
+
+function beginSpin(d) {
+  if (d.slices && d.slices.length) slices = d.slices;
+  spinsLeft = d.spinsLeft; lsSet(LS.last, JSON.stringify(d));
+  startAnim(d);
+}
+function startAnim(d) {
+  showView('spin'); setChip();
+  setStatus('', 'Hazır ol!', '', 'Çark birazdan dönecek...'); setButton(null);
+  anim = { startAt: d.startAt, duration: d.duration, hold: d.hold, idx: d.idx, offsetFrac: d.offsetFrac, turns: d.turns,
+           slices: d.slices || slices, slice: d.slice, spinsLeft: d.spinsLeft, from: rot, target: null, done: false, lastCd: 0, lastIdx: -1 };
+  keepAwake(true);
+}
+
+function frame(ts) {
+  var dt = Math.min(0.1, (ts - lastTs) / 1000); lastTs = ts;
+  var now = clock.now(), sl = slices;
+  if (anim) {
+    var toStart = anim.startAt - now;
+    if (toStart > 0) {
+      rot += 0.15 * dt; anim.from = rot; sl = toStart < 4000 ? anim.slices : slices;
+      var sec = Math.ceil(toStart / 1000);
+      if (sec <= 3 && sec !== anim.lastCd) {
+        anim.lastCd = sec; var c = $('countdown'); c.textContent = sec; c.classList.remove('on'); void c.offsetWidth; c.classList.add('on'); vibrate(25);
+      }
+    } else {
+      $('countdown').classList.remove('on');
+      sl = anim.slices;
+      if (anim.target === null) { anim.target = WC.targetRotation(anim.from, sl.length, anim.idx, anim.offsetFrac, anim.turns); setStatus('', 'Çark dönüyor...', '', 'Bol şans!'); }
+      var p = WC.progress(now, anim.startAt, anim.duration);
+      if (p < 1) {
+        rot = WC.rotationAt(anim.from, anim.target, p);
+        var i = WC.sliceAtPointer(rot, sl.length);
+        if (i !== anim.lastIdx) { anim.lastIdx = i; vibrate(6); }
+      } else {
+        rot = anim.target;
+        if (!anim.done) { anim.done = true; var a = anim; anim = null; showResult(a.slice, a.spinsLeft, false); }
+      }
+    }
+  } else if (mode !== 'result') {
+    rot += 0.15 * dt;
   }
+  if (sl && sl.length) renderer.draw(rot, sl); else WC.drawWheel(canvas, rot, []);
   requestAnimationFrame(frame);
+}
+
+/* ---------- oturum ---------- */
+async function refreshMe() {
+  try {
+    var r = await fetch('/api/me', { headers: { 'X-Participant-Token': participant.token } });
+    if (r.status === 401) { forgetSession(); return null; }
+    var d = await r.json(); spinsLeft = d.spinsLeft; return d;
+  } catch (e) { return null; }
+}
+function forgetSession() {
+  stopPolling(); keepAwake(false); anim = null; participant = null; spinsLeft = 0;
+  lsDel(LS.token); lsDel(LS.name); lsDel(LS.last);
+  showView('form'); document.getElementById('spinBtn').disabled = false;
+}
+$('leaveBtn').onclick = function () { stopPolling(); keepAwake(false); showReady(); };
+
+async function resumeSession() {
+  var token = lsGet(LS.token), name = lsGet(LS.name);
+  if (!token) return false;
+  participant = { token: token, name: name || '' };
+  var me = await refreshMe();
+  if (!participant) return false;                         // 401: oturum silindi
+  if (me && me.name) participant.name = me.name;
+  var last = null; try { last = JSON.parse(lsGet(LS.last) || 'null'); } catch (e) {}
+  var now = clock.now();
+  if (last && last.startAt && now < last.startAt + last.duration) {   // çevirme sürerken sayfa yenilendi
+    if (last.slices) slices = last.slices;
+    spinsLeft = me ? me.spinsLeft : last.spinsLeft; startAnim(last); anim.spinsLeft = spinsLeft; return true;
+  }
+  var waitedAt = parseInt(lsGet(LS.waiting) || '0', 10);
+  if (spinsLeft > 0 && waitedAt && Date.now() - waitedAt < 18000) { joinQueue(); return true; }   // sıradayken yenilendi: yerini koru
+  if (last && last.slice && (!me || me.spinsLeft === last.spinsLeft)) { showResult(last.slice, spinsLeft, true); return true; }
+  if (me && me.hasGift && me.prize) { showView('result'); setChip(); setStatus('🎉', 'TEBRİKLER!', me.prize, 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.'); setButton(spinsLeft > 0 ? '🎡 Çevir' : null, joinQueue); return true; }
+  showReady(); return true;
+}
+
+/* ---------- kayıt formu ---------- */
+var form = $('giftForm'), spinBtn = $('spinBtn');
+form.addEventListener('submit', async function (e) {
+  e.preventDefault(); formError('');
+  var fd = new FormData(form);
+  var name = fd.get('name').trim(), company = fd.get('company').trim(), phone = fd.get('phone').trim(), email = fd.get('email').trim();
+  var bad = false;
+  showFieldError('fName', name.length < 3); if (name.length < 3) bad = true;
+  showFieldError('fCompany', company.length < 2); if (company.length < 2) bad = true;
+  showFieldError('fPhone', !isValidPhone(phone)); if (!isValidPhone(phone)) bad = true;
+  showFieldError('fEmail', !isValidEmail(email)); if (!isValidEmail(email)) bad = true;
+  if (bad) return;
+  if (!$('terms').checked || !$('consent').checked) { formError('Devam etmek için iki onay kutusunu da işaretleyin.'); return; }
+
+  spinBtn.disabled = true; spinBtn.textContent = 'Kayıt yapılıyor...';
+  var reg;
+  try { reg = await postJSON('/api/register', { name: name, company: company, phone: phone, email: email, terms: true, consent: true }); }
+  catch (err) { formError('Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.'); spinBtn.disabled = false; spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; return; }
+  if (!reg.ok || !reg.data.token) {
+    formError(reg.data.error || 'Kayıt yapılamadı, lütfen tekrar deneyin.');
+    spinBtn.disabled = false; spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; return;
+  }
+  participant = { name: name, token: reg.data.token };
+  lsSet(LS.token, participant.token); lsSet(LS.name, name); lsDel(LS.last);
+  spinsLeft = 1;
+  await fetchSlices();
+  joinQueue();               // form gönderimi aynı zamanda ilk basış: sıra bu andan sayılır
 });
 
-function showResult(slice) {
-  const emoji = document.getElementById('resultEmoji');
-  const title = document.getElementById('resultTitle');
-  const prizeText = document.getElementById('prizeText');
-  const sub = document.getElementById('resultSub');
-  const btn = document.getElementById('actionBtn');
-
-  btn.style.display = 'none';
-  btn.onclick = null;
-
-  if (slice.type === 'gift') {
-    emoji.textContent = '🎉';
-    title.textContent = 'TEBRİKLER!';
-    prizeText.textContent = slice.name;
-    sub.innerHTML = 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.';
-    launchConfetti();
-  } else if (slice.type === 'lose') {
-    emoji.textContent = '😢';
-    title.textContent = 'ÜZGÜNÜZ...';
-    prizeText.textContent = slice.name;
-    sub.innerHTML = 'Bu sefer şans yaver gitmedi.<br>Bizi tercih ettiğiniz için teşekkürler!';
-  } else if (slice.type === 'again') {
-    emoji.textContent = '🔄';
-    title.textContent = 'BİR HAK DAHA!';
-    prizeText.textContent = slice.name;
-    sub.innerHTML = 'Ücretsiz bir çevirme hakkı kazandınız!';
-    btn.style.display = 'inline-block';
-    btn.className = 'action-btn';
-    btn.textContent = '🎡 Tekrar Çevir';
-    btn.onclick = () => {
-      btn.style.display = 'none';
-      document.getElementById('resultEmoji').textContent = '⏳';
-      document.getElementById('resultTitle').textContent = 'Çevriliyor...';
-      document.getElementById('prizeText').textContent = '';
-      document.getElementById('resultSub').innerHTML = '';
-      setTimeout(() => repeatSpin(), 300);
-    };
-  } else if (slice.type === 'task') {
-    emoji.textContent = '🎭';
-    title.textContent = 'EĞLENCELİ GÖREV!';
-    prizeText.textContent = slice.name;
-    sub.innerHTML = 'Görevi tamamladıysan butona bas ve ekstra çevirme hakkını kullan!';
-    btn.style.display = 'inline-block';
-    btn.className = 'action-btn';
-    btn.textContent = '✅ Görevi Yaptım → Tekrar Çevir';
-    btn.onclick = () => {
-      btn.style.display = 'none';
-      document.getElementById('resultEmoji').textContent = '⏳';
-      document.getElementById('resultTitle').textContent = 'Çevriliyor...';
-      document.getElementById('prizeText').textContent = '';
-      document.getElementById('resultSub').innerHTML = '';
-      setTimeout(() => repeatSpin(), 300);
-    };
-  }
-}
-
-async function repeatSpin() {
-  await fetchSlices();
-  let response;
-  try {
-    const r = await fetch('/api/spin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(participant)
-    });
-    response = await r.json();
-  } catch(e) { return; }
-
-  if (!response.slice) return;
-  const chosen = response.slice;
-  if (response.slices) slices = response.slices;
-
-  const canvas = document.getElementById('miniWheelCanvas');
-  const n = slices.length;
-  const arc = 2*Math.PI / n;
-  let chosenIndex = slices.findIndex(s => s.id === chosen.id);
-  if (chosenIndex === -1) chosenIndex = 0;
-  const turns = 5;
-  const targetMod = ((-Math.PI/2 - chosenIndex*arc - arc/2) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
-  const targetRotation = turns * 2 * Math.PI + targetMod;
-  const duration = 5500;
-  const startTime = performance.now();
-  function easeOutCubic(t) { return 1 - Math.pow(1-t, 3); }
-  function frame(now) {
-    const t = Math.min((now - startTime) / duration, 1);
-    const rot = targetRotation * easeOutCubic(t);
-    drawWheel(canvas, rot, slices);
-    if (t < 1) requestAnimationFrame(frame);
-    else showResult(chosen);
-  }
-  requestAnimationFrame(frame);
-}
-
-fetchSlices();
+/* ---------- başlangıç ---------- */
+requestAnimationFrame(frame);
+setInterval(function () { if (mode === 'waiting' || mode === 'spin') clock.sync(2); }, 60000);
+(async function init() {
+  await Promise.all([clock.sync(4), fetchSlices()]);
+  var resumed = await resumeSession();
+  if (!resumed) showView('form');
+})();
 </script>
 </body>
 </html>

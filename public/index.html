@@ -4,489 +4,455 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>InspireIT Şans Çarkı</title>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<link rel="icon" href="data:,">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  html, body { height: 100%; overflow: hidden; }
-  body {
-    background: radial-gradient(circle at 50% 30%, #1e293b, #0f172a 70%);
-    color: #fff;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    height: 100vh;
+  /* Büyük ekran düzeni (16:9 projeksiyon / TV):
+     üst bant (logo | başlık | sayaç) / orta (kazananlar | ÇARK | QR ve adımlar) / alt durum çubuğu.
+     Çark orta alanın yüksekliğine göre boyutlanır, hiçbir şeyin üstüne binmez. */
+  :root {
+    --bg0: #070b18; --bg1: #101a38; --bg2: #1b2550;
+    --amber: #fbbf24; --orange: #f59e0b; --red: #ef4444; --violet: #8b5cf6; --blue: #3b82f6; --green: #10b981;
+    --ink: #f8fafc; --muted: #94a3b8; --panel: rgba(15, 23, 42, 0.62); --line: rgba(255, 255, 255, 0.12);
   }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 1.85vh; } /* 1080p'de 20px; her şey rem ile ölçeklenir */
+  @media (max-aspect-ratio: 1/1) { html { font-size: 1.6vw; } }
+  html, body { height: 100%; overflow: hidden; background: var(--bg0); }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ink); }
+  body.idle-cursor { cursor: none; }
 
-  header {
-    display: grid;
-    grid-template-columns: 250px 1fr 200px;
-    align-items: start;
-    padding: 20px 40px;
-    gap: 20px;
+  #stage {
+    position: relative; height: 100%; width: 100%;
+    display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 0.6rem;
+    padding: 0.9rem 1.8rem 1rem;
+    background:
+      radial-gradient(ellipse 60% 55% at 50% 52%, rgba(99, 102, 241, 0.28), transparent 70%),
+      radial-gradient(ellipse 90% 70% at 50% 0%, var(--bg2), transparent 70%),
+      linear-gradient(180deg, var(--bg1), var(--bg0));
+    isolation: isolate;
   }
-  .logo-area img { height: 70px; display: block; margin-top: 10px; margin-left: 20px; }
+  #bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
 
-  .qr-area {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    margin-right: 20px;
+  /* ÜST BANT */
+  .top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1rem; min-height: 4.2rem; }
+  .logo-plate { justify-self: start; background: #fff; border-radius: 1rem; padding: 0.55rem 1.1rem; box-shadow: 0 0.4rem 1.6rem rgba(0, 0, 0, 0.4), 0 0 0 0.12rem rgba(255, 255, 255, 0.25); line-height: 0; }
+  .logo { height: 3rem; max-width: 100%; display: block; }
+  .title { text-align: center; }
+  .title h1 {
+    font-size: 2.7rem; line-height: 1; font-weight: 900; letter-spacing: 0.18em; padding-left: 0.18em;
+    background: linear-gradient(90deg, var(--amber), #fb7185 50%, #a78bfa); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0.15rem 0.7rem rgba(245, 158, 11, 0.35));
   }
-  .qr-box {
-    background: #fff;
-    padding: 8px;
-    border-radius: 10px;
-    box-shadow: 0 6px 24px rgba(245,158,11,0.5);
-    animation: qrPulse 2s ease-in-out infinite;
-  }
-  @keyframes qrPulse {
-    0%,100% { box-shadow: 0 6px 24px rgba(245,158,11,0.5); }
-    50% { box-shadow: 0 6px 40px rgba(245,158,11,1); }
-  }
-  .qr-tagline {
-    font-size: 0.95rem;
-    font-weight: 800;
-    background: linear-gradient(90deg, #fbbf24, #ef4444, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: 0.5px;
-    text-align: center;
-    line-height: 1.3;
-    animation: tagPulse 1.5s ease-in-out infinite;
-  }
-  @keyframes tagPulse {
-    0%,100% { opacity: 1; }
-    50% { opacity: 0.75; }
-  }
+  .title p { margin-top: 0.3rem; font-size: 1rem; letter-spacing: 0.32em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+  .counter { justify-self: end; text-align: right; line-height: 1; }
+  .counter b { display: block; font-size: 2.6rem; font-weight: 900; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .counter small { font-size: 0.8rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
 
-  /* ORTA: Çark tam ortada */
-  main {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-  }
+  /* ORTA ALAN */
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.15fr) minmax(0, 1fr); gap: 1.6rem; min-height: 0; align-items: stretch; }
+  aside { min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 1rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 1.2rem; padding: 1.1rem 1.3rem; backdrop-filter: blur(8px); box-shadow: 0 0.6rem 2rem rgba(0, 0, 0, 0.35); }
+  .panel h2 { font-size: 0.82rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; font-weight: 800; }
 
-  .wheel-wrap {
-    position: relative;
-    width: min(72vh, 72vw);
-    height: min(72vh, 72vw);
-  }
-  .wheel-wrap canvas { width: 100%; height: 100%; display: block; filter: drop-shadow(0 10px 50px rgba(245,158,11,0.5)); }
-  .pointer {
-    position: absolute;
-    top: -22px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    height: 0;
-    border-left: 26px solid transparent;
-    border-right: 26px solid transparent;
-    border-top: 52px solid #fbbf24;
-    z-index: 10;
-    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.7));
-  }
-  .center-btn {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%,-50%);
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, #fbbf24, #ef4444);
-    border: 6px solid #fff;
-    color: #fff;
-    font-weight: 900;
-    font-size: 1.1rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 5px 40px rgba(239,68,68,0.8);
-    z-index: 5;
-    text-align: center;
-    line-height: 1.15;
-    animation: pulse 2s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%,100% { box-shadow: 0 5px 40px rgba(239,68,68,0.8); }
-    50% { box-shadow: 0 5px 70px rgba(239,68,68,1); }
-  }
+  /* Hediyeler */
+  .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+  .chips span { padding: 0.32rem 0.8rem; border-radius: 2rem; font-size: 0.92rem; font-weight: 700; background: linear-gradient(135deg, rgba(245, 158, 11, 0.9), rgba(239, 68, 68, 0.9)); box-shadow: 0 0.2rem 0.6rem rgba(0, 0, 0, 0.3); }
+  /* Kazananlar */
+  #winners { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+  #winners li { display: grid; grid-template-columns: 1fr; padding: 0.55rem 0.8rem; border-radius: 0.8rem; background: rgba(255, 255, 255, 0.06); border-left: 0.28rem solid var(--green); animation: slideIn 0.6s ease-out; }
+  #winners li b { font-size: 1.05rem; font-weight: 800; }
+  #winners li span { font-size: 0.88rem; color: #fde68a; }
+  #winners .empty { border-left-color: var(--line); color: var(--muted); font-size: 0.95rem; background: transparent; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-1.2rem); } to { opacity: 1; transform: none; } }
 
-  /* Slogan çarkın altında */
-  .slogan-below {
-    position: absolute;
-    bottom: 20px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: #fbbf24;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    letter-spacing: 1px;
-  }
+  /* QR ve adımlar */
+  .qr-card { text-align: center; }
+  .qr-box { display: inline-block; background: #fff; padding: 0.7rem; border-radius: 1rem; animation: qrPulse 2.4s ease-in-out infinite; line-height: 0; }
+  .qr-box svg { width: 11.5rem; height: 11.5rem; display: block; }
+  @keyframes qrPulse { 0%, 100% { box-shadow: 0 0 1rem rgba(251, 191, 36, 0.35); } 50% { box-shadow: 0 0 2.4rem rgba(251, 191, 36, 0.95); } }
+  .qr-tag { margin-top: 0.7rem; font-size: 1.25rem; font-weight: 900; letter-spacing: 0.06em; background: linear-gradient(90deg, var(--amber), #fb7185); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .qr-url { margin-top: 0.3rem; font-size: 0.74rem; color: var(--muted); word-break: break-all; }
+  .steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 0.55rem; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 1.8rem 1fr; gap: 0.7rem; align-items: center; font-size: 0.98rem; color: #e2e8f0; }
+  .steps li::before { content: counter(s); display: grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--red)); font-weight: 900; font-size: 0.9rem; }
 
-  /* Alt bant: sol HOŞ GELDİNİZ, sağ MESAJ */
-  footer {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    padding: 14px 40px 20px;
-    border-top: 1px solid rgba(255,255,255,0.06);
-    min-height: 130px;
+  /* ÇARK */
+  .center { container-type: size; min-width: 0; min-height: 0; display: grid; place-items: center; position: relative; z-index: 8; }
+  .wheel-frame {
+    --s: min(100cqw, 100cqh);
+    position: relative; width: var(--s); height: var(--s);
+    transition: transform 1.1s cubic-bezier(0.22, 0.9, 0.25, 1); transform-origin: 50% 0%;
   }
+  .wheel-frame.zoom { transform: scale(1.5); }
+  .wheel-frame .hub { transition: opacity 0.5s; }
+  .wheel-frame.zoom .hub { opacity: 0; }
+  .rim { position: absolute; inset: 1.2%; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, transparent 86.5%, #1e293b 86.8%, #0f172a 93%, #334155 94%, transparent 94.4%);
+    box-shadow: 0 0 5rem rgba(245, 158, 11, 0.38), 0 0 1.5rem rgba(0, 0, 0, 0.7); }
+  .wheel-frame canvas { position: absolute; inset: 6%; width: 88%; height: 88%; display: block; border-radius: 50%; }
+  .bulb { position: absolute; left: 50%; top: 50%; width: calc(var(--s) * 0.022); height: calc(var(--s) * 0.022); margin: calc(var(--s) * -0.011) 0 0 calc(var(--s) * -0.011);
+    border-radius: 50%; background: #fde68a; box-shadow: 0 0 0.5rem 0.1rem rgba(253, 224, 71, 0.9);
+    transform: rotate(var(--a)) translateY(calc(var(--s) * -0.4685)); animation: chase 1.6s steps(1, end) infinite; animation-delay: var(--d); }
+  .wheel-frame.spinning .bulb { animation-duration: 0.4s; }
+  @keyframes chase { 0% { opacity: 1; } 50% { opacity: 0.22; box-shadow: none; } }
+  .pointer { position: absolute; left: 50%; top: 0.8%; transform: translateX(-50%); width: calc(var(--s) * 0.085); height: calc(var(--s) * 0.105); z-index: 5;
+    filter: drop-shadow(0 0.25rem 0.35rem rgba(0, 0, 0, 0.7)); }
+  .hub { position: absolute; left: 50%; top: 50%; width: calc(var(--s) * 0.165); height: calc(var(--s) * 0.165); transform: translate(-50%, -50%); border-radius: 50%; z-index: 4;
+    display: grid; place-items: center; text-align: center; font-weight: 900; letter-spacing: 0.08em; font-size: calc(var(--s) * 0.021); line-height: 1.15; color: #fff;
+    background: radial-gradient(circle at 32% 28%, #fde68a, var(--orange) 40%, var(--red)); border: calc(var(--s) * 0.007) solid #fff;
+    box-shadow: 0 0 2.2rem rgba(239, 68, 68, 0.75); animation: hubPulse 2.2s ease-in-out infinite; }
+  @keyframes hubPulse { 0%, 100% { box-shadow: 0 0 1.6rem rgba(239, 68, 68, 0.6); } 50% { box-shadow: 0 0 3.2rem rgba(239, 68, 68, 1); } }
 
-  .welcome-box {
-    background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(139,92,246,0.15));
-    border: 2px solid rgba(59,130,246,0.4);
-    border-radius: 16px;
-    padding: 18px 24px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-  .welcome-box .greet {
-    font-size: 1.6rem;
-    font-weight: 800;
-    background: linear-gradient(90deg, #60a5fa, #a855f7);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1.2;
-  }
-  .welcome-box .sub {
-    color: #94a3b8;
-    font-size: 0.95rem;
-    margin-top: 6px;
-  }
+  /* ALT DURUM ÇUBUĞU */
+  .status { position: relative; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 1.2rem; min-height: 3.6rem; padding: 0.7rem 1.6rem; border-radius: 2rem;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.85), rgba(139, 92, 246, 0.85)); border: 1px solid rgba(255, 255, 255, 0.28); box-shadow: 0 0 2.2rem rgba(99, 102, 241, 0.45); transition: background 0.4s, box-shadow 0.4s; }
+  .status.live { background: linear-gradient(90deg, var(--orange), var(--red)); box-shadow: 0 0 2.6rem rgba(245, 158, 11, 0.7); }
+  .status .dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; background: #fff; animation: blink 1.2s ease-in-out infinite; flex: none; }
+  .status .msg { font-size: 1.45rem; font-weight: 800; text-align: center; }
+  .status .sub { font-size: 1rem; color: rgba(255, 255, 255, 0.82); font-weight: 600; }
+  @keyframes blink { 50% { opacity: 0.25; } }
 
-  .message-box {
-    background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(239,68,68,0.15));
-    border: 2px solid rgba(245,158,11,0.4);
-    border-radius: 16px;
-    padding: 18px 24px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    transition: all 0.4s;
-  }
-  .message-box.active {
-    border-color: #f59e0b;
-    box-shadow: 0 0 40px rgba(245,158,11,0.5);
-  }
-  .message-box .msg {
-    font-size: 1.4rem;
-    font-weight: 800;
-    background: linear-gradient(90deg, #fbbf24, #ef4444);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1.2;
-  }
-  .message-box .msg-sub {
-    color: #cbd5e1;
-    font-size: 0.95rem;
-    margin-top: 6px;
-    line-height: 1.4;
-  }
-  .message-box .big-result {
-    font-size: 2rem;
-    font-weight: 900;
-    background: linear-gradient(90deg, #10b981, #06b6d4, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: pop 0.6s ease-out;
-  }
-  @keyframes pop {
-    0% { transform: scale(0); }
-    70% { transform: scale(1.15); }
-    100% { transform: scale(1); }
-  }
+  /* GERİ SAYIM, SONUÇ, KONFETİ */
+  #dim { position: absolute; inset: 0; z-index: 7; background: radial-gradient(circle at 50% 40%, rgba(2, 6, 23, 0.35), rgba(2, 6, 23, 0.86)); opacity: 0; pointer-events: none; transition: opacity 0.8s; }
+  #dim.on { opacity: 1; }
+  #countdown { position: absolute; inset: 0; z-index: 9; display: grid; place-items: center; pointer-events: none; font-weight: 900; font-size: 22rem; color: #fff; opacity: 0;
+    text-shadow: 0 0 3rem rgba(251, 191, 36, 0.9), 0 0.5rem 2rem rgba(0, 0, 0, 0.6); }
+  #countdown.tick { animation: cd 1s ease-out; }
+  @keyframes cd { 0% { opacity: 0; transform: scale(2); } 25% { opacity: 1; transform: scale(1); } 85% { opacity: 1; } 100% { opacity: 0; transform: scale(0.8); } }
+  #result { position: absolute; left: 50%; bottom: 8%; z-index: 10; width: min(70%, 62rem); transform: translate(-50%, 2rem) scale(0.9); opacity: 0; pointer-events: none; transition: transform 0.7s cubic-bezier(0.2, 1.3, 0.4, 1), opacity 0.5s;
+    text-align: center; padding: 1.6rem 2.4rem 1.8rem; border-radius: 2rem; border: 0.18rem solid rgba(255, 255, 255, 0.5); background: linear-gradient(135deg, var(--c1, #f59e0b), var(--c2, #ef4444)); box-shadow: 0 0 6rem var(--glow, rgba(245, 158, 11, 0.7)); }
+  #result.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  #result .r-top { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255, 255, 255, 0.92); }
+  #result .r-prize { margin: 0.4rem 0; font-size: 3.6rem; line-height: 1.05; font-weight: 900; text-shadow: 0 0.2rem 1rem rgba(0, 0, 0, 0.35); text-wrap: balance; }
+  #result .r-sub { font-size: 1.2rem; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+  #fx { position: absolute; inset: 0; z-index: 11; width: 100%; height: 100%; pointer-events: none; }
 
-  /* Konfeti */
-  .confetti {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 999;
-    overflow: hidden;
+  #snd { position: absolute; right: 1rem; bottom: 5.4rem; z-index: 12; font: inherit; font-size: 0.85rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 2rem; border: 1px solid var(--line); background: rgba(15, 23, 42, 0.8); color: var(--ink); cursor: pointer; }
+  #snd[hidden] { display: none; }
+  #net { position: absolute; left: 1rem; bottom: 5.4rem; z-index: 12; font-size: 0.8rem; font-weight: 700; padding: 0.35rem 0.8rem; border-radius: 2rem; background: rgba(239, 68, 68, 0.85); display: none; }
+  #net.on { display: block; }
+
+  /* Dikey ekran / dar ekran: yan paneller çarkın altına geçer */
+  @media (max-aspect-ratio: 1/1) {
+    main { grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1.8fr) auto; }
+    .center { grid-column: 1 / -1; grid-row: 1; }
+    aside { grid-row: 2; flex-direction: column; justify-content: flex-start; }
+    aside.right .panel:nth-child(2) { display: none; }
+    .qr-box svg { width: 8rem; height: 8rem; }
   }
-  .confetti i {
-    position: absolute;
-    width: 12px;
-    height: 16px;
-    top: -20px;
-    animation: fall linear forwards;
-  }
-  @keyframes fall {
-    to { transform: translateY(110vh) rotate(720deg); opacity: 0.3; }
-  }
+  @media (prefers-reduced-motion: reduce) { .bulb, .hub, .qr-box { animation: none; } }
 </style>
 </head>
 <body>
+<div id="stage">
+  <canvas id="bg"></canvas>
 
-<header>
-  <div class="logo-area">
-    <img src="/logo.png" alt="InspireIT">
-  </div>
-  <div></div>
-  <div class="qr-area">
-    <div class="qr-box">
-      <div id="qrcode"></div>
+  <header class="top">
+    <div class="logo-plate"><img class="logo" src="/logo.png" alt="InspireIT" onerror="this.parentNode.style.visibility='hidden'"></div>
+    <div class="title">
+      <h1>ŞANS ÇARKI</h1>
+      <p>Şansını dene, hediyeni kap</p>
     </div>
-    <div class="qr-tagline">📱 QR OKUTUN,<br>ÇARKI ÇEVİRİN!</div>
-  </div>
-</header>
+    <div class="counter"><b id="cnt">0</b><small>katılımcı</small></div>
+  </header>
 
-<main>
-  <div class="wheel-wrap">
-    <div class="pointer"></div>
-    <canvas id="wheelCanvas" width="1000" height="1000"></canvas>
-    <div class="center-btn">🎡<br>ŞANS<br>ÇARKI</div>
-  </div>
-  <div class="slogan-below">Şansını Dene, Hediyeni Kap!</div>
-</main>
+  <main>
+    <aside class="left">
+      <div class="panel">
+        <h2>Bugünün Hediyeleri</h2>
+        <div class="chips" id="gifts"></div>
+      </div>
+      <div class="panel">
+        <h2>Son Kazananlar</h2>
+        <ol id="winners"><li class="empty">İlk kazanan siz olun</li></ol>
+      </div>
+    </aside>
 
-<footer>
-  <div class="welcome-box">
-    <div class="greet" id="welcomeGreet">👋 Hoş Geldiniz!</div>
-    <div class="sub" id="welcomeSub">QR kodu okutarak şansınızı deneyin</div>
-  </div>
-  <div class="message-box" id="messageBox">
-    <div class="msg">🎡 Çark Hazır</div>
-    <div class="msg-sub">Katılımcı bekleniyor...</div>
-  </div>
-</footer>
+    <section class="center">
+      <div class="wheel-frame" id="frame">
+        <div class="rim"></div>
+        <div id="bulbs"></div>
+        <canvas id="wheel" width="1000" height="1000"></canvas>
+        <svg class="pointer" viewBox="0 0 80 100" aria-hidden="true">
+          <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient></defs>
+          <path d="M40 98 L6 22 Q4 8 20 6 L60 6 Q76 8 74 22 Z" fill="url(#pg)" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+          <circle cx="40" cy="24" r="8" fill="#ef4444" stroke="#fff" stroke-width="3"/>
+        </svg>
+        <div class="hub">ŞANS<br>ÇARKI</div>
+      </div>
+    </section>
 
+    <aside class="right">
+      <div class="panel qr-card">
+        <div class="qr-box" id="qr"></div>
+        <div class="qr-tag">QR OKUTUN, ÇEVİRİN</div>
+        <div class="qr-url" id="qrUrl"></div>
+      </div>
+      <div class="panel">
+        <h2>Nasıl katılırım?</h2>
+        <ol class="steps">
+          <li>Telefonunuzla QR kodu okutun</li>
+          <li>Formu doldurun</li>
+          <li>Çarkı çevirin, şansınızı görün</li>
+        </ol>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="status" id="status">
+    <span class="dot"></span>
+    <div>
+      <div class="msg" id="statusMsg">Çark hazır</div>
+      <div class="sub" id="statusSub">QR kodu okutun ve şansınızı deneyin</div>
+    </div>
+  </footer>
+
+  <div id="dim"></div>
+  <div id="countdown"></div>
+  <div id="result"><div class="r-top" id="rTop"></div><div class="r-prize" id="rPrize"></div><div class="r-sub" id="rSub"></div></div>
+  <canvas id="fx"></canvas>
+  <button id="snd" type="button">Sesi aç</button>
+  <div id="net">Bağlantı yok, yeniden deneniyor</div>
+</div>
+
+<script src="/qrcode.js"></script>
+<script src="/wheel-core.js"></script>
 <script>
-const COLOR_BY_TYPE = {
-  gift:  ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316','#14b8a6'],
-  lose:  ['#334155','#475569','#1e293b','#3f3f46','#52525b'],
-  again: ['#0ea5e9','#06b6d4','#0284c7'],
-  task:  ['#a855f7','#d946ef','#8b5cf6','#c026d3'],
-};
-function pickColor(slice, index) {
-  const palette = COLOR_BY_TYPE[slice.type] || COLOR_BY_TYPE.gift;
-  return palette[index % palette.length];
-}
+(function () {
+  'use strict';
+  var WC = window.WheelCore;
+  var $ = function (id) { return document.getElementById(id); };
+  var wheelCanvas = $('wheel'), frame = $('frame');
+  var renderer = WC.createRenderer(wheelCanvas);
+  var clock = WC.createClock('/api/time');
 
-let slices = [];
-let standRotation = 0;
+  /* ------------------------------------------------ süsler: ampuller, QR, arka plan */
+  (function bulbs() {
+    var html = '', n = 36;
+    for (var i = 0; i < n; i++) html += '<i class="bulb" style="--a:' + (i * 360 / n) + 'deg;--d:' + ((i % 2) * -0.8) + 's"></i>';
+    $('bulbs').innerHTML = html;
+  })();
 
-// Spin state (animasyon)
-let spinning = false;
-let spinStart = 0;
-let spinDuration = 0;
-let spinFrom = 0;
-let spinTarget = 0;
+  (function qr() {
+    var u = new URL(window.location.href); u.pathname = '/m'; u.search = ''; u.hash = '';
+    var url = u.toString();
+    try {
+      var q = qrcode(0, 'M'); q.addData(url); q.make();
+      $('qr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    } catch (e) { $('qr').textContent = 'QR oluşturulamadı'; }
+    $('qrUrl').textContent = url.replace(/^https?:\/\//, '');
+  })();
 
-function drawWheel(canvas, rotation, activeSlices) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W/2, cy = H/2;
-  const radius = Math.min(W,H)/2 - 10;
-  ctx.clearRect(0,0,W,H);
-
-  const n = activeSlices.length;
-  if (n === 0) {
-    ctx.fillStyle = '#334155';
-    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, 2*Math.PI); ctx.fill();
-    return;
+  var bg = $('bg'), bctx = bg.getContext('2d'), motes = [];
+  function sizeCanvases() {
+    var r = window.devicePixelRatio > 1 ? 1.5 : 1;
+    [bg, $('fx')].forEach(function (c) { c.width = Math.round(window.innerWidth * r / 1); c.height = Math.round(window.innerHeight * r / 1); });
+    motes = [];
+    for (var i = 0; i < 55; i++) motes.push({ x: Math.random(), y: Math.random(), r: 0.6 + Math.random() * 2.2, v: 0.004 + Math.random() * 0.012, p: Math.random() * 6.28, h: [45, 28, 265, 215][i % 4] });
   }
-
-  const arc = 2*Math.PI / n;
-  for (let i = 0; i < n; i++) {
-    const start = rotation + i*arc;
-    const end = start + arc;
-    const s = activeSlices[i];
-
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius, start, end);
-    ctx.closePath();
-    ctx.fillStyle = pickColor(s, i);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = W*0.004;
-    ctx.stroke();
-
-    const mid = start + arc/2;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(mid);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur = 6;
-    const fontSize = Math.max(W*0.018, Math.min(W*0.030, W*0.35/n + W*0.012));
-    ctx.font = `900 ${fontSize}px sans-serif`;
-    let txt = s.name;
-    const maxChars = n <= 8 ? 26 : n <= 12 ? 20 : 16;
-    if (txt.length > maxChars) txt = txt.substring(0, maxChars-1) + '…';
-    ctx.fillText(txt, radius*0.95, 0);
-    ctx.restore();
-  }
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, W*0.085, 0, 2*Math.PI);
-  ctx.fillStyle = '#0f172a';
-  ctx.fill();
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = W*0.009;
-  ctx.stroke();
-}
-
-async function fetchSlices() {
-  try {
-    const r = await fetch('/api/slices');
-    const data = await r.json();
-    slices = data.slices || [];
-  } catch(e) { console.error(e); }
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-// QR — mobil.html
-const mobileURL = new URL(window.location.href);
-mobileURL.pathname = '/mobil.html';
-mobileURL.search = '';
-new QRCode(document.getElementById('qrcode'), {
-  text: mobileURL.toString(),
-  width: 110,
-  height: 110,
-  colorDark: '#0f172a',
-  colorLight: '#ffffff',
-  correctLevel: QRCode.CorrectLevel.H
-});
-
-// Animasyon döngüsü
-function animate() {
-  if (spinning) {
-    const now = performance.now();
-    const t = Math.min((now - spinStart) / spinDuration, 1);
-    const eased = 1 - Math.pow(1-t, 3);
-    standRotation = spinFrom + (spinTarget - spinFrom) * eased;
-    if (t >= 1) {
-      spinning = false;
+  window.addEventListener('resize', sizeCanvases); sizeCanvases();
+  function drawBg(t) {
+    var w = bg.width, h = bg.height; bctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < motes.length; i++) {
+      var m = motes[i]; m.y -= m.v * 0.016; if (m.y < -0.02) { m.y = 1.02; m.x = Math.random(); }
+      var a = 0.25 + 0.35 * Math.sin(t / 900 + m.p);
+      bctx.beginPath(); bctx.fillStyle = 'hsla(' + m.h + ',90%,70%,' + a.toFixed(3) + ')';
+      bctx.arc(m.x * w, m.y * h, m.r * (w / 1920) * 1.6, 0, 6.2832); bctx.fill();
     }
-  } else {
-    standRotation += 0.0025;
   }
-  drawWheel(document.getElementById('wheelCanvas'), standRotation, slices);
-  requestAnimationFrame(animate);
-}
 
-// Event polling
-let lastEventId = 0;
-async function pollEvents() {
-  try {
-    const r = await fetch(`/api/events?since=${lastEventId}`);
-    if (r.ok) {
-      const data = await r.json();
-      if (data.events && data.events.length) {
-        for (const ev of data.events) {
-          lastEventId = Math.max(lastEventId, ev.id);
-          handleEvent(ev);
+  /* ------------------------------------------------ ses (WebAudio, dosyasız) */
+  var actx = null, soundOn = false;
+  function enableSound() {
+    try {
+      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      soundOn = true; $('snd').hidden = true;
+      try { localStorage.setItem('sc_sound', '1'); } catch (e) {}
+      beep(660, 0.12, 'sine', 0.12);
+    } catch (e) {}
+  }
+  function beep(freq, dur, type, vol, when) {
+    if (!soundOn || !actx) return;
+    var t0 = actx.currentTime + (when || 0), o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.15, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function tickSound() { beep(1500, 0.035, 'square', 0.05); }
+  function resultSound(type) {
+    if (type === 'gift') [523, 659, 784, 1047, 1319].forEach(function (f, i) { beep(f, 0.38, 'triangle', 0.18, i * 0.12); });
+    else if (type === 'lose') { beep(330, 0.3, 'sawtooth', 0.08); beep(247, 0.5, 'sawtooth', 0.08, 0.28); }
+    else { beep(520, 0.18, 'triangle', 0.15); beep(780, 0.3, 'triangle', 0.15, 0.16); }
+  }
+  function countSound(n) { beep(n === 1 ? 880 : 620, 0.16, 'sine', 0.16); }
+  $('snd').addEventListener('click', enableSound);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 's' || e.key === 'S') { if (soundOn) { soundOn = false; $('snd').hidden = false; $('snd').textContent = 'Sesi aç'; } else enableSound(); }
+    if (e.key === 'f' || e.key === 'F') toggleFs();
+  });
+  function toggleFs() {
+    try { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); } catch (e) {}
+  }
+  document.addEventListener('dblclick', toggleFs);
+  try { if (localStorage.getItem('sc_sound') === '1') { /* tarayıcı kuralı: ses yine bir tıklama ister */ $('snd').textContent = 'Sesi aç'; } } catch (e) {}
+  var cursorTimer = null;
+  document.addEventListener('mousemove', function () { document.body.classList.remove('idle-cursor'); clearTimeout(cursorTimer); cursorTimer = setTimeout(function () { document.body.classList.add('idle-cursor'); }, 3000); });
+
+  /* ------------------------------------------------ konfeti */
+  var fx = $('fx'), fctx = fx.getContext('2d'), parts = [];
+  function confetti(count) {
+    var cols = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#fbbf24', '#ffffff'];
+    for (var i = 0; i < count; i++) {
+      var fromLeft = i % 2 === 0;
+      parts.push({ x: fromLeft ? -0.02 : 1.02, y: 0.35 + Math.random() * 0.2, vx: (fromLeft ? 1 : -1) * (0.35 + Math.random() * 0.75), vy: -(0.5 + Math.random() * 0.9), g: 0.9,
+        s: 0.007 + Math.random() * 0.009, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 12, c: cols[(Math.random() * cols.length) | 0], life: 4.2 + Math.random() * 2, age: 0 });
+    }
+  }
+  function drawFx(dt) {
+    fctx.clearRect(0, 0, fx.width, fx.height);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i]; p.age += dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt;
+      if (p.age > p.life || p.y > 1.1) { parts.splice(i, 1); continue; }
+      var sz = p.s * fx.width;
+      fctx.save(); fctx.translate(p.x * fx.width, p.y * fx.height); fctx.rotate(p.r);
+      fctx.globalAlpha = Math.min(1, (p.life - p.age) * 1.2); fctx.fillStyle = p.c; fctx.fillRect(-sz / 2, -sz * 0.7, sz, sz * 1.4); fctx.restore();
+    }
+  }
+
+  /* ------------------------------------------------ veri: dilimler, olaylar, kazananlar, sayaç */
+  var liveSlices = [], lastEventId = 0, queue = [], offline = 0;
+  function netState(ok) { offline = ok ? 0 : offline + 1; $('net').classList.toggle('on', offline >= 3); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  function fetchSlices() {
+    return fetch('/api/slices', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) { liveSlices = d.slices || []; renderGifts(); netState(true); }).catch(function () { netState(false); });
+  }
+  var giftKey = '';
+  function renderGifts() {
+    var names = []; liveSlices.forEach(function (x) { if (x.type === 'gift' && names.indexOf(x.name) < 0) names.push(x.name); });
+    var key = names.join('|'); if (key === giftKey) return; giftKey = key;
+    $('gifts').innerHTML = names.length ? names.map(function (n) { return '<span>' + esc(n) + '</span>'; }).join('') : '<span style="background:none;color:#94a3b8;font-weight:600">Hediyeler tükendi</span>';
+  }
+  function fetchWinners() {
+    return fetch('/api/last-winners', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      var w = (d.winners || []).slice(0, 5);
+      $('winners').innerHTML = w.length ? w.map(function (x) { return '<li><b>' + esc(x.name) + '</b><span>' + esc(x.prize) + '</span></li>'; }).join('') : '<li class="empty">İlk kazanan siz olun</li>';
+    }).catch(function () {});
+  }
+  function fetchStats() {
+    return fetch('/api/stats', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) { $('cnt').textContent = d.participants; }).catch(function () {});
+  }
+  function pollEvents() {
+    var t0 = Date.now();
+    fetch('/api/events?since=' + lastEventId, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      var t1 = Date.now(); if (d.serverNow && t1 - t0 < 1500) clock.set(d.serverNow, t0, t1);
+      var now = clock.now();
+      (d.events || []).forEach(function (ev) {
+        lastEventId = Math.max(lastEventId, ev.id);
+        if (ev.type !== 'spin' || !ev.startAt) return;
+        if (now > ev.startAt + ev.duration + ev.hold) return; // bitmiş olay: tekrar oynatma
+        if (queue.some(function (q) { return q.id === ev.id; })) return;
+        queue.push(ev);
+      });
+      if (!lastEventId && d.last) lastEventId = d.last;
+      queue.sort(function (a, b) { return a.startAt - b.startAt; });
+      netState(true);
+    }).catch(function () { netState(false); }).then(function () { setTimeout(pollEvents, 700); });
+  }
+
+  /* ------------------------------------------------ çizim ve oynatma */
+  var rot = 0, last = performance.now(), cur = null, lastTickIdx = -1, lastTickAt = 0, lastCountdown = 0;
+  var highlight = -1;
+
+  function drawAll(slices) {
+    renderer.draw(rot, slices);
+    if (highlight >= 0 && slices.length) {
+      var ctx = wheelCanvas.getContext('2d'), W = wheelCanvas.width, cx = W / 2, cy = W / 2, R = W / 2 - 10, n = slices.length, arc = 2 * Math.PI / n;
+      for (var i = 0; i < n; i++) {
+        if (i === highlight) continue;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, rot + i * arc, rot + (i + 1) * arc); ctx.closePath(); ctx.fillStyle = 'rgba(2,6,23,0.55)'; ctx.fill();
+      }
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, rot + highlight * arc, rot + (highlight + 1) * arc); ctx.closePath();
+      ctx.lineWidth = W * 0.012; ctx.strokeStyle = '#fff'; ctx.shadowColor = '#fde68a'; ctx.shadowBlur = 30; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+  }
+
+  function setStatus(msg, sub, live) {
+    if ($('statusMsg').textContent !== msg) $('statusMsg').textContent = msg;
+    if ($('statusSub').textContent !== sub) $('statusSub').textContent = sub;
+    $('status').classList.toggle('live', !!live);
+  }
+
+  var RESULT_STYLE = {
+    gift:  { c1: '#f59e0b', c2: '#ef4444', glow: 'rgba(245,158,11,0.8)', top: function (n) { return 'Tebrikler ' + n + '!'; }, sub: 'Hediyeniz kaydedildi. Yetkilimiz sizinle iletişime geçecek.' },
+    lose:  { c1: '#475569', c2: '#1e293b', glow: 'rgba(148,163,184,0.45)', top: function (n) { return 'Bu sefer olmadı ' + n; }, sub: 'Bizi tercih ettiğiniz için teşekkürler!' },
+    again: { c1: '#0ea5e9', c2: '#6366f1', glow: 'rgba(14,165,233,0.7)', top: function (n) { return 'Bir hak daha ' + n + '!'; }, sub: 'Telefonunuzdan tekrar çevirebilirsiniz.' },
+    task:  { c1: '#a855f7', c2: '#db2777', glow: 'rgba(168,85,247,0.75)', top: function (n) { return 'Görev zamanı ' + n + '!'; }, sub: 'Görevi tamamlayın, ekstra çevirme hakkı kazanın.' }
+  };
+
+  function showResult(ev) {
+    var st = RESULT_STYLE[ev.sliceType] || RESULT_STYLE.lose, r = $('result');
+    r.style.setProperty('--c1', st.c1); r.style.setProperty('--c2', st.c2); r.style.setProperty('--glow', st.glow);
+    $('rTop').textContent = st.top(ev.name); $('rPrize').textContent = ev.sliceName; $('rSub').textContent = st.sub;
+    r.classList.add('on'); $('dim').classList.add('on'); frame.classList.add('zoom');
+    resultSound(ev.sliceType);
+    if (ev.sliceType === 'gift') { confetti(160); setTimeout(function () { confetti(110); }, 900); setTimeout(fetchWinners, 800); }
+    setTimeout(fetchStats, 500);
+  }
+  function hideResult() {
+    $('result').classList.remove('on'); $('dim').classList.remove('on'); frame.classList.remove('zoom'); highlight = -1;
+  }
+
+  function frameLoop(ts) {
+    var dt = Math.min(0.1, (ts - last) / 1000); last = ts;
+    var now = clock.now();
+    // Biten olayları kuyruktan düş
+    while (queue.length && now >= queue[0].startAt + queue[0].duration + queue[0].hold) {
+      var done = queue.shift(); if (cur === done) { cur = null; hideResult(); }
+    }
+    var ev = queue[0] || null;
+    var slices = liveSlices;
+
+    if (!ev) {
+      rot += 0.12 * dt; highlight = -1; frame.classList.remove('spinning');
+      setStatus('Çark hazır', 'QR kodu okutun ve şansınızı deneyin', false);
+    } else {
+      if (cur !== ev) { cur = ev; cur.phase = 0; cur.from = rot; }
+      var toStart = ev.startAt - now;
+      if (toStart > 0) {
+        // Sıra bekliyor: çark boşta döner, son 3 saniyede geri sayım
+        rot += 0.12 * dt; cur.from = rot; slices = toStart < 4000 ? ev.slices : liveSlices;
+        var sec = Math.ceil(toStart / 1000);
+        setStatus('Sıradaki: ' + ev.name, toStart > 3000 ? 'Çark birazdan dönecek' : 'Hazır olun', true);
+        if (sec <= 3 && sec !== lastCountdown) { lastCountdown = sec; var c = $('countdown'); c.textContent = sec; c.classList.remove('tick'); void c.offsetWidth; c.classList.add('tick'); countSound(sec); }
+      } else {
+        slices = ev.slices; lastCountdown = 0;
+        var n = slices.length;
+        if (!cur.target) cur.target = WC.targetRotation(cur.from, n, ev.idx, ev.offsetFrac, ev.turns);
+        var p = WC.progress(now, ev.startAt, ev.duration);
+        if (p < 1) {
+          rot = WC.rotationAt(cur.from, cur.target, p); highlight = -1; frame.classList.add('spinning');
+          setStatus(ev.name + ' için çark dönüyor', queue.length > 1 ? 'Bol şans! Sırada ' + (queue.length - 1) + ' kişi var' : 'Bol şans!', true);
+          var idx = WC.sliceAtPointer(rot, n);
+          if (idx !== lastTickIdx && ts - lastTickAt > 45) { lastTickIdx = idx; lastTickAt = ts; tickSound(); }
+        } else {
+          rot = cur.target; highlight = ev.idx; frame.classList.remove('spinning');
+          if (cur.phase < 1) { cur.phase = 1; showResult(ev); }
+          setStatus(ev.name, ev.sliceName, true);
         }
       }
     }
-  } catch(e) {}
-  setTimeout(pollEvents, 800);
-}
-
-function handleEvent(ev) {
-  if (ev.type === 'spin') {
-    // 1. Hoş geldin mesajı
-    document.getElementById('welcomeGreet').textContent = `👋 Sayın ${ev.name}`;
-    document.getElementById('welcomeSub').textContent = 'Bol şanslar dileriz!';
-
-    // 2. Mesaj kutusunu güncelle
-    const box = document.getElementById('messageBox');
-    box.classList.add('active');
-    box.innerHTML = `
-      <div class="msg">🎡 Çark Dönüyor...</div>
-      <div class="msg-sub">${escapeHtml(ev.name)} için heyecan dorukta!</div>
-    `;
-
-    // 3. Çarkı döndür
-    triggerSpin(ev.sliceId, ev.sliceType);
-
-    // 4. Sonuç geldiğinde göster (animasyon bitince)
-    const delay = spinDuration + 200;
-    setTimeout(() => showResult(ev.name, ev.sliceName, ev.sliceType), delay);
-  }
-}
-
-function triggerSpin(targetSliceId, sliceType) {
-  const n = slices.length;
-  if (n === 0) return;
-  const arc = 2*Math.PI / n;
-  let idx = slices.findIndex(s => s.id === targetSliceId);
-  if (idx === -1) idx = 0;
-  const turns = 5 + Math.floor(Math.random()*3);
-  const target = -Math.PI/2 - idx*arc - arc/2 + 2*Math.PI*turns;
-  spinFrom = standRotation;
-  spinTarget = standRotation + (turns * 2 * Math.PI) + ((target - standRotation) % (2*Math.PI));
-  // Basit yaklaşım: hedef dilime döndür
-  const targetMod = ((target - standRotation) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
-  spinTarget = standRotation + turns * 2 * Math.PI + targetMod;
-  spinStart = performance.now();
-  spinDuration = 5500;
-  spinning = true;
-}
-
-function showResult(name, sliceName, sliceType) {
-  const box = document.getElementById('messageBox');
-  let emoji = '🎁';
-  if (sliceType === 'gift') emoji = '🎉';
-  else if (sliceType === 'lose') emoji = '😢';
-  else if (sliceType === 'again') emoji = '🔄';
-  else if (sliceType === 'task') emoji = '🎭';
-
-  box.innerHTML = `
-    <div class="msg">${emoji} ${escapeHtml(name)}</div>
-    <div class="big-result">${escapeHtml(sliceName)}</div>
-  `;
-
-  if (sliceType === 'gift') {
-    launchConfetti();
+    drawAll(slices);
+    drawBg(ts); drawFx(dt);
+    requestAnimationFrame(frameLoop);
   }
 
-  // Stoğu hemen yenile (hediye bitti ise çarktan kalksın)
-  fetchSlices();
-}
-
-function launchConfetti() {
-  const container = document.createElement('div');
-  container.className = 'confetti';
-  const colors = ['#f59e0b','#ef4444','#10b981','#3b82f6','#8b5cf6','#ec4899','#fbbf24'];
-  for (let i = 0; i < 120; i++) {
-    const piece = document.createElement('i');
-    piece.style.left = Math.random()*100 + 'vw';
-    piece.style.background = colors[Math.floor(Math.random()*colors.length)];
-    piece.style.animationDuration = (2 + Math.random()*2) + 's';
-    piece.style.animationDelay = (Math.random()*0.5) + 's';
-    container.appendChild(piece);
-  }
-  document.body.appendChild(container);
-  setTimeout(() => container.remove(), 6000);
-}
-
-// Başlat
-fetchSlices().then(() => {
-  animate();
-  pollEvents();
-});
-
-setInterval(fetchSlices, 10000);
+  clock.sync(5).then(function () { return fetchSlices(); }).then(function () {
+    fetchStats(); fetchWinners(); pollEvents(); requestAnimationFrame(frameLoop);
+    setInterval(fetchSlices, 8000); setInterval(fetchStats, 15000); setInterval(fetchWinners, 30000); setInterval(function () { clock.sync(3); }, 120000);
+  });
+})();
 </script>
 </body>
 </html>

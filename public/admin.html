@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Yönetim - Şans Çarkı</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0e1424; --panel: #18213a; --panel2: #1f2a48; --line: rgba(255,255,255,.12);
+    --text: #e8edf7; --muted: #9aa8c4; --brand: #e0307f; --brand2: #4a8cca; --ok: #22c08a; --warn: #f5a524; --bad: #ef5350;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  body { background: var(--bg); color: var(--text); min-height: 100vh; font-size: 15px; line-height: 1.45; }
+  button, input, select { font: inherit; color: inherit; }
+  a { color: var(--brand2); }
+  .hidden { display: none !important; }
+
+  /* giriş */
+  #login { max-width: 360px; margin: 14vh auto 0; padding: 0 16px; }
+  #login .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; }
+  #login h1 { font-size: 1.25rem; margin-bottom: 4px; }
+  #login p { color: var(--muted); margin-bottom: 18px; font-size: .9rem; }
+
+  header { position: sticky; top: 0; z-index: 20; background: rgba(14,20,36,.96); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
+  .bar { max-width: 1100px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .bar h1 { font-size: 1.05rem; font-weight: 700; margin-right: auto; }
+  .badge { padding: 4px 11px; border-radius: 999px; font-size: .8rem; font-weight: 700; border: 1px solid var(--line); }
+  .badge.run { color: var(--ok); border-color: rgba(34,192,138,.5); background: rgba(34,192,138,.1); }
+  .badge.wait { color: var(--warn); border-color: rgba(245,165,36,.5); background: rgba(245,165,36,.1); }
+  .badge.stop { color: var(--bad); border-color: rgba(239,83,80,.5); background: rgba(239,83,80,.1); }
+  nav { max-width: 1100px; margin: 0 auto; padding: 0 12px; display: flex; gap: 2px; overflow-x: auto; }
+  nav button { background: none; border: none; padding: 11px 14px; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap; font-weight: 600; }
+  nav button.on { color: var(--text); border-bottom-color: var(--brand); }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 60px; }
+
+  .btn { padding: 9px 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: rgba(255,255,255,.3); }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .btn.good { background: var(--ok); border-color: var(--ok); color: #05261b; }
+  .btn.danger { color: #ffb4b2; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.sm { padding: 5px 10px; font-size: .85rem; }
+
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .stat .v { font-size: 1.9rem; font-weight: 800; line-height: 1.1; }
+  .stat .l { color: var(--muted); font-size: .85rem; margin-top: 2px; }
+  h2 { font-size: 1.05rem; margin-bottom: 10px; }
+  .muted { color: var(--muted); font-size: .88rem; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
+  input[type=text], input[type=password], input[type=number], input[type=datetime-local], input[type=search], select {
+    background: #0c1222; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-width: 0; }
+  input:focus, select:focus { outline: 2px solid var(--brand2); outline-offset: 1px; }
+  .stack > * + * { margin-top: 14px; }
+
+  .bar-track { height: 14px; background: #0c1222; border-radius: 99px; overflow: hidden; position: relative; border: 1px solid var(--line); }
+  .bar-fill { height: 100%; background: var(--brand); }
+  .bar-mark { position: absolute; top: -2px; bottom: -2px; width: 3px; background: var(--warn); }
+
+  .msg { padding: 10px 14px; border-radius: 9px; font-size: .9rem; margin-top: 12px; }
+  .msg.ok { background: rgba(34,192,138,.12); border: 1px solid rgba(34,192,138,.4); }
+  .msg.err { background: rgba(239,83,80,.12); border: 1px solid rgba(239,83,80,.5); }
+  .msg.warn { background: rgba(245,165,36,.1); border: 1px solid rgba(245,165,36,.45); }
+
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th, .tbl td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .tbl th { color: var(--muted); font-size: .8rem; font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: .78rem; font-weight: 700; background: var(--panel2); }
+  .tag.gift { background: rgba(224,48,127,.18); color: #ff8dbd; } .tag.lose { background: rgba(120,140,200,.18); color: #b8c6ee; }
+  .tag.again { background: rgba(56,189,248,.18); color: #7dd3fc; } .tag.task { background: rgba(168,85,247,.2); color: #d8b4fe; }
+
+  .modes { display: grid; gap: 8px; }
+  .mode { display: flex; gap: 10px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; align-items: flex-start; }
+  .mode.on { border-color: var(--brand); background: rgba(224,48,127,.08); }
+  .mode input { margin-top: 4px; accent-color: var(--brand); }
+  .mode b { display: block; }
+  .pager { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .slice-row input[type=text] { width: 100%; }
+  .slice-row input[type=number] { width: 84px; }
+  @media (max-width: 640px) { .stat .v { font-size: 1.5rem; } .tbl th:nth-child(n+5), .tbl td:nth-child(n+5) { white-space: nowrap; } }
+</style>
+</head>
+<body>
+
+<section id="login" class="hidden">
+  <div class="box">
+    <h1>Şans Çarkı Yönetimi</h1>
+    <p>Devam etmek için yönetici parolasını girin.</p>
+    <form id="loginForm" class="stack">
+      <div class="field"><label for="pw">Parola</label><input type="password" id="pw" autocomplete="current-password" required></div>
+      <button class="btn primary" type="submit" style="width:100%">Giriş yap</button>
+      <div id="loginErr" class="msg err hidden"></div>
+    </form>
+  </div>
+</section>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="bar">
+      <h1>Şans Çarkı Yönetimi</h1>
+      <span id="phaseBadge" class="badge"></span>
+      <button class="btn sm" id="pauseBtn"></button>
+      <button class="btn sm" id="logoutBtn">Çıkış</button>
+    </div>
+    <nav id="tabs">
+      <button data-tab="genel" class="on">Genel</button>
+      <button data-tab="etkinlik">Etkinlik zamanı</button>
+      <button data-tab="hediyeler">Çark ve hediyeler</button>
+      <button data-tab="katilimci">Katılımcılar</button>
+      <button data-tab="gecmis">Çevirme geçmişi</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- GENEL -->
+    <section id="tab-genel">
+      <div class="grid">
+        <div class="card stat"><div class="v" id="sPart">-</div><div class="l">Katılımcı</div></div>
+        <div class="card stat"><div class="v" id="sSpins">-</div><div class="l">Toplam çevirme</div></div>
+        <div class="card stat"><div class="v" id="sGift">-</div><div class="l">Verilen hediye</div></div>
+        <div class="card stat"><div class="v" id="sQueue">-</div><div class="l">Sırada bekleyen</div></div>
+        <div class="card stat"><div class="v" id="sChance">-</div><div class="l">Şu an hediye şansı</div></div>
+      </div>
+      <div id="alerts"></div>
+      <div class="card" style="margin-bottom:16px">
+        <h2>Hediye bütçesi</h2>
+        <div class="bar-track" aria-label="Hediye dağıtım ilerlemesi"><div class="bar-fill" id="bFill"></div><div class="bar-mark" id="bMark"></div></div>
+        <p class="muted" id="bText" style="margin-top:8px"></p>
+      </div>
+      <div class="card">
+        <h2>Son çevirmeler</h2>
+        <div class="scroll"><table class="tbl"><thead><tr><th>Saat</th><th>Katılımcı</th><th>Sonuç</th></tr></thead><tbody id="liveBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ETKİNLİK -->
+    <section id="tab-etkinlik" class="hidden">
+      <div class="card stack">
+        <h2>Hediye dağıtım modu</h2>
+        <div class="modes" id="modes">
+          <label class="mode"><input type="radio" name="mode" value="auto"><span><b>Otomatik (önerilen)</b><span class="muted">Hediyeler etkinlik süresine yayılır. Süre dolmadan stok erimez.</span></span></label>
+          <label class="mode"><input type="radio" name="mode" value="open"><span><b>Açık</b><span class="muted">Zaman sınırı yok, hediyeler normal olasılıkla çıkar. Deneme için uygundur.</span></span></label>
+          <label class="mode"><input type="radio" name="mode" value="closed"><span><b>Kapalı</b><span class="muted">Hediye dilimleri çıkmaz, çark yalnızca diğer dilimlerde durur.</span></span></label>
+        </div>
+        <h2 style="margin-top:6px">Etkinlik zamanı</h2>
+        <div class="row">
+          <div class="field"><label for="evStart">Başlangıç (Türkiye saati)</label><input type="datetime-local" id="evStart"></div>
+          <div class="field"><label for="evDays">Gün sayısı</label><input type="number" id="evDays" min="1" max="14" step="1" style="width:100px"></div>
+          <div class="field"><label for="evHours">Günlük süre (saat)</label><input type="number" id="evHours" min="0.25" max="24" step="0.25" style="width:120px"></div>
+        </div>
+        <p class="muted">Her gün başlangıç saatinde açılır ve günlük süre kadar sürer. Örnek: 10:00 başlangıç, 6 saat = her gün 10:00-16:00. Gün aralarında hediye dağıtım payı ilerlemez.</p>
+        <div id="evSummary" class="msg warn hidden"></div>
+        <div><button class="btn primary" id="evSave">Kaydet</button></div>
+        <div id="evMsg"></div>
+      </div>
+    </section>
+
+    <!-- HEDİYELER -->
+    <section id="tab-hediyeler" class="hidden">
+      <div class="card stack">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Çark dilimleri</h2>
+          <div class="row"><button class="btn sm" id="slReload">Sunucudan yenile</button><button class="btn sm" id="slAdd">Dilim ekle</button><button class="btn primary" id="slSave">Kaydet</button></div>
+        </div>
+        <p class="muted">Çark üzerinde görünen sıra aşağıdaki sıradır. Olasılık, çıkabilir dilimlerin ağırlığına göre hesaplanır. Hediyede "kalan stok" bitince dilim çıkmaz. Stok değiştirirseniz hediye dağıtım payı kalan stoğa göre yeniden hesaplanır.</p>
+        <div class="scroll">
+          <table class="tbl">
+            <thead><tr><th style="width:44px">Sıra</th><th style="width:150px">Tür</th><th>Çarkta görünen ad</th><th style="width:130px">Kalan stok</th><th style="width:110px">Ağırlık</th><th style="width:80px">Olasılık</th><th style="width:70px">Verilen</th><th style="width:130px"></th></tr></thead>
+            <tbody id="slBody"></tbody>
+          </table>
+        </div>
+        <div id="slWarn"></div>
+        <div id="slMsg"></div>
+      </div>
+    </section>
+
+    <!-- KATILIMCILAR -->
+    <section id="tab-katilimci" class="hidden">
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:end;margin-bottom:12px">
+          <div class="field"><label for="pq">Ara (ad, firma, GSM, e-posta)</label><input type="search" id="pq" placeholder="Aramak için yazın" style="width:280px;max-width:100%"></div>
+          <a class="btn" href="/api/export.csv" download>CSV indir (tümü)</a>
+        </div>
+        <div class="scroll"><table class="tbl"><thead><tr><th>Kayıt</th><th>Ad Soyad</th><th>Firma</th><th>GSM</th><th>E-posta</th><th>Sonuç</th><th>Çevirme</th></tr></thead><tbody id="pBody"></tbody></table></div>
+        <div class="pager"><button class="btn sm" id="pPrev">Önceki</button><span class="muted" id="pInfo"></span><button class="btn sm" id="pNext">Sonraki</button></div>
+      </div>
+    </section>
+
+    <!-- GEÇMİŞ -->
+    <section id="tab-gecmis" class="hidden">
+      <div class="card">
+        <h2>Son 100 çevirme</h2>
+        <div class="scroll"><table class="tbl"><thead><tr><th>Tarih</th><th>Katılımcı</th><th>Firma</th><th>Sonuç</th><th>Tür</th></tr></thead><tbody id="hBody"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var TYPE = { gift: 'Hediye', lose: 'Boş', again: 'Bir hak daha', task: 'Görev' };
+var UNLIMITED = 999;
+var S = null, slRows = null, curTab = 'genel', pPage = 0, pTimer = null, pollTimer = null;
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function trTime(sec, withDate) {
+  if (!sec) return '-';
+  var d = new Date(sec * 1000);
+  var o = { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+  if (withDate) { o.day = '2-digit'; o.month = '2-digit'; o.year = 'numeric'; }
+  return d.toLocaleString('tr-TR', o);
+}
+function toLocalInput(sec) { return new Date((sec + 3 * 3600) * 1000).toISOString().slice(0, 16); }
+function note(el, cls, text) { el.innerHTML = text ? '<div class="msg ' + cls + '">' + esc(text) + '</div>' : ''; }
+
+async function api(method, url, body) {
+  var r = await fetch(url, { method: method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+  var d = {}; try { d = await r.json(); } catch (e) {}
+  if (r.status === 401 && url !== '/api/admin/login') { showLogin(); throw new Error('Oturum süresi doldu'); }
+  if (!r.ok) throw new Error(d.error || ('Hata ' + r.status));
+  return d;
+}
+
+/* ---------- giriş ---------- */
+function showLogin() { clearInterval(pollTimer); $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('pw').value = ''; $('pw').focus(); }
+function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); }
+$('loginForm').addEventListener('submit', async function (e) {
+  e.preventDefault(); var err = $('loginErr'); err.classList.add('hidden');
+  try { await api('POST', '/api/admin/login', { password: $('pw').value }); await start(); }
+  catch (x) { err.textContent = x.message; err.classList.remove('hidden'); }
+});
+$('logoutBtn').onclick = async function () { try { await api('POST', '/api/admin/logout', {}); } catch (e) {} showLogin(); };
+
+/* ---------- sekmeler ---------- */
+$('tabs').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  curTab = b.dataset.tab;
+  Array.prototype.forEach.call($('tabs').children, function (x) { x.classList.toggle('on', x === b); });
+  ['genel', 'etkinlik', 'hediyeler', 'katilimci', 'gecmis'].forEach(function (t) { $('tab-' + t).classList.toggle('hidden', t !== curTab); });
+  if (curTab === 'katilimci') loadParticipants();
+  if (curTab === 'gecmis') loadHistory();
+  if (curTab === 'hediyeler' && !slRows) loadSlicesFromStatus();
+  if (curTab === 'etkinlik') fillEvent(false);
+});
+
+/* ---------- durum ---------- */
+var PHASE = { unconfigured: ['Etkinlik zamanı girilmedi', 'wait'], not_started: ['Başlamadı', 'wait'], running: ['Devam ediyor', 'run'], break: ['Günlük ara', 'wait'], ended: ['Bitti', 'stop'] };
+async function loadStatus() {
+  S = await api('GET', '/api/admin/status');
+  renderStatus();
+}
+function renderStatus() {
+  var s = S, ph = PHASE[s.phase] || [s.phase, ''];
+  var b = $('phaseBadge');
+  if (s.paused) { b.textContent = 'Çark duraklatıldı'; b.className = 'badge stop'; }
+  else { b.textContent = ph[0]; b.className = 'badge ' + ph[1]; }
+  $('pauseBtn').textContent = s.paused ? 'Çarkı devam ettir' : 'Çarkı duraklat';
+  $('pauseBtn').className = 'btn sm ' + (s.paused ? 'good' : '');
+  $('sPart').textContent = s.participants; $('sSpins').textContent = s.spins; $('sGift').textContent = s.giftSpins;
+  $('sQueue').textContent = s.queueLength; $('sChance').textContent = '%' + s.giftChancePercent;
+
+  var g = s.gifts, total = g.total || 0;
+  $('bFill').style.width = total ? Math.round(g.given / total * 100) + '%' : '0%';
+  $('bMark').style.left = total ? Math.min(99, Math.round(g.target / total * 100)) + '%' : '0%';
+  var modeTxt = s.mode === 'auto' ? 'Otomatik' : s.mode === 'open' ? 'Açık' : 'Kapalı';
+  $('bText').textContent = 'Mod: ' + modeTxt + '. Verilen ' + g.given + ' / toplam ' + total + ' (kalan ' + g.remaining + '). Şu ana kadar verilmesi gereken: ' + g.target + '. ' +
+    (s.mode === 'auto' ? (g.allowed ? 'Şu an ' + g.allowance + ' hediye çıkabilir.' : 'Şu an hediye çıkmıyor, sıradaki hediye zamanı bekleniyor.') : '');
+
+  var al = [];
+  if (s.paused) al.push(['err', 'Çark duraklatıldı: telefonlar çeviremez. Devam ettirmek için üstteki düğmeyi kullanın.']);
+  if (s.mode === 'auto' && !s.configured) al.push(['warn', 'Etkinlik zamanı girilmediği için hediye çıkmıyor. "Etkinlik zamanı" sekmesinden tarih ve saati girin.']);
+  if (s.mode === 'closed') al.push(['warn', 'Mod kapalı: hediye dilimleri çıkmıyor.']);
+  if (s.mode === 'open') al.push(['warn', 'Mod açık: hediyeler zamana yayılmadan, normal olasılıkla çıkar. Gerçek etkinlikte Otomatik modu kullanın.']);
+  $('alerts').innerHTML = al.map(function (a) { return '<div class="msg ' + a[0] + '" style="margin:0 0 10px">' + esc(a[1]) + '</div>'; }).join('');
+}
+$('pauseBtn').onclick = async function () {
+  try { S = await api('PUT', '/api/admin/settings', { paused: !S.paused }); renderStatus(); } catch (e) { alert(e.message); }
+};
+
+async function loadLive() {
+  var d = await api('GET', '/api/admin/spins?limit=10');
+  $('liveBody').innerHTML = d.items.length ? d.items.map(function (x) {
+    return '<tr><td>' + trTime(x.created_at) + '</td><td>' + esc(x.name || '-') + '</td><td><span class="tag ' + esc(x.slice_type) + '">' + esc(x.slice_name) + '</span></td></tr>';
+  }).join('') : '<tr><td colspan="3" class="muted">Henüz çevirme yok.</td></tr>';
+}
+
+/* ---------- etkinlik zamanı ---------- */
+function fillEvent(force) {
+  if (!S) return;
+  if (!force && $('evMsg').dataset.dirty === '1') return;
+  var m = document.querySelector('input[name=mode][value=' + S.mode + ']'); if (m) m.checked = true;
+  syncModes();
+  var sc = S.schedule;
+  $('evStart').value = sc ? toLocalInput(sc.start) : '';
+  $('evDays').value = sc ? sc.days : 1;
+  $('evHours').value = sc ? sc.hoursPerDay : 6;
+  var sm = $('evSummary');
+  if (sc) { sm.classList.remove('hidden'); sm.className = 'msg warn'; sm.textContent = 'Kayıtlı plan: ' + sc.days + ' gün, günde ' + sc.hoursPerDay + ' saat, toplam ' + sc.totalHours + ' saat. Bitiş: ' + trTime(sc.end, true) + ' (Türkiye saati).'; }
+  else { sm.className = 'msg warn'; sm.textContent = 'Henüz etkinlik zamanı girilmedi. Otomatik modda hediye çıkması için tarih ve saat gereklidir.'; }
+}
+function syncModes() { Array.prototype.forEach.call(document.querySelectorAll('.mode'), function (l) { l.classList.toggle('on', l.querySelector('input').checked); }); }
+$('modes').addEventListener('change', function () { syncModes(); $('evMsg').dataset.dirty = '1'; });
+['evStart', 'evDays', 'evHours'].forEach(function (id) { $(id).addEventListener('input', function () { $('evMsg').dataset.dirty = '1'; }); });
+$('evSave').onclick = async function () {
+  var body = { mode: (document.querySelector('input[name=mode]:checked') || {}).value, days: $('evDays').value, hoursPerDay: $('evHours').value };
+  if ($('evStart').value) body.eventStart = $('evStart').value;
+  if (body.mode === 'auto' && !$('evStart').value && !(S.schedule)) { note($('evMsg'), 'err', 'Otomatik mod için başlangıç tarihi ve saati girin.'); return; }
+  try { S = await api('PUT', '/api/admin/settings', body); $('evMsg').dataset.dirty = '0'; renderStatus(); fillEvent(true); note($('evMsg'), 'ok', 'Kaydedildi.'); }
+  catch (e) { note($('evMsg'), 'err', e.message); }
+};
+
+/* ---------- çark dilimleri ---------- */
+function loadSlicesFromStatus() {
+  slRows = S.slices.map(function (s) { return { id: s.id, type: s.type, name: s.name, stock: s.stock, weight: s.weight, given: s.given || 0 }; });
+  renderSlices();
+}
+function renderSlices() {
+  var body = $('slBody');
+  var live = slRows.filter(function (r) { return r.type !== 'gift' || r.stock > 0; });
+  var sum = live.reduce(function (a, r) { return a + (Number(r.weight) || 0); }, 0);
+  body.innerHTML = slRows.map(function (r, i) {
+    var unl = r.type === 'gift' && r.stock >= UNLIMITED;
+    var eligible = r.type !== 'gift' || r.stock > 0;
+    var pct = eligible && sum > 0 ? (Number(r.weight) / sum * 100).toFixed(1) + '%' : '0%';
+    var stockCell = r.type !== 'gift' ? '<span class="muted">-</span>' :
+      '<div class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><input type="number" min="0" max="100000" step="1" data-f="stock" data-i="' + i + '" value="' + (unl ? '' : r.stock) + '" ' + (unl ? 'disabled' : '') + '>' +
+      '<label class="muted" style="white-space:nowrap"><input type="checkbox" data-f="unl" data-i="' + i + '" ' + (unl ? 'checked' : '') + '> sınırsız</label></div>';
+    var opts = Object.keys(TYPE).map(function (k) { return '<option value="' + k + '"' + (k === r.type ? ' selected' : '') + '>' + TYPE[k] + '</option>'; }).join('');
+    return '<tr class="slice-row"><td>' + (i + 1) + '</td>' +
+      '<td><select data-f="type" data-i="' + i + '">' + opts + '</select></td>' +
+      '<td><input type="text" maxlength="40" data-f="name" data-i="' + i + '" value="' + esc(r.name) + '"></td>' +
+      '<td>' + stockCell + '</td>' +
+      '<td><input type="number" min="0.5" max="100" step="0.5" data-f="weight" data-i="' + i + '" value="' + esc(r.weight) + '"></td>' +
+      '<td>' + pct + '</td><td>' + (r.given || 0) + '</td>' +
+      '<td><button class="btn sm" data-a="up" data-i="' + i + '" title="Yukarı">&#8593;</button> <button class="btn sm" data-a="down" data-i="' + i + '" title="Aşağı">&#8595;</button> <button class="btn sm danger" data-a="del" data-i="' + i + '" title="Sil">Sil</button></td></tr>';
+  }).join('');
+  // uyarılar
+  var w = [];
+  if (slRows.length < 2) w.push('En az 2 dilim olmalı.');
+  if (slRows.length > 24) w.push('En fazla 24 dilim olabilir.');
+  if (!slRows.some(function (r) { return r.type === 'lose'; })) w.push('"Boş" dilimi yok: her çevirme bir şey kazandırır. Genellikle en az bir boş dilim istenir.');
+  var gw = slRows.filter(function (r) { return r.type === 'gift' && r.stock > 0; }).length;
+  if (!gw) w.push('Stoklu hediye dilimi yok: kimse hediye kazanamaz.');
+  note($('slWarn'), 'warn', ''); $('slWarn').innerHTML = w.map(function (t) { return '<div class="msg warn">' + esc(t) + '</div>'; }).join('');
+}
+$('slBody').addEventListener('input', function (e) {
+  var t = e.target, i = +t.dataset.i, f = t.dataset.f; if (f === undefined) return;
+  var r = slRows[i];
+  if (f === 'name') r.name = t.value;
+  else if (f === 'weight') r.weight = t.value;
+  else if (f === 'stock') r.stock = t.value === '' ? 0 : Math.max(0, parseInt(t.value, 10) || 0);
+  if (f === 'weight' || f === 'stock') { renderSlicesKeepFocus(t); }
+});
+function renderSlicesKeepFocus(t) { var i = t.dataset.i, f = t.dataset.f, pos = t.selectionStart; renderSlices(); var n = document.querySelector('[data-i="' + i + '"][data-f="' + f + '"]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} } }
+$('slBody').addEventListener('change', function (e) {
+  var t = e.target, i = +t.dataset.i, f = t.dataset.f; if (f === undefined) return;
+  var r = slRows[i];
+  if (f === 'type') { r.type = t.value; if (r.type !== 'gift') r.stock = UNLIMITED; else if (r.stock >= UNLIMITED) r.stock = 10; }
+  if (f === 'unl') { r.stock = t.checked ? UNLIMITED : 10; }
+  if (f === 'type' || f === 'unl') renderSlices();
+});
+$('slBody').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return; var i = +b.dataset.i, a = b.dataset.a;
+  if (a === 'up' && i > 0) { var x = slRows[i]; slRows[i] = slRows[i - 1]; slRows[i - 1] = x; }
+  if (a === 'down' && i < slRows.length - 1) { var y = slRows[i]; slRows[i] = slRows[i + 1]; slRows[i + 1] = y; }
+  if (a === 'del') { if (!confirm('"' + slRows[i].name + '" dilimi silinsin mi? (Kaydedene kadar çark değişmez.)')) return; slRows.splice(i, 1); }
+  renderSlices();
+});
+$('slAdd').onclick = function () { if (slRows.length >= 24) { note($('slMsg'), 'err', 'En fazla 24 dilim olabilir.'); return; } slRows.push({ id: '', type: 'gift', name: 'Yeni hediye', stock: 10, weight: 5, given: 0 }); renderSlices(); };
+$('slReload').onclick = async function () { if (!confirm('Kaydedilmemiş değişiklikler silinsin ve sunucudaki liste yüklensin mi?')) return; await loadStatus(); loadSlicesFromStatus(); note($('slMsg'), 'ok', 'Sunucudaki liste yüklendi.'); };
+$('slSave').onclick = async function () {
+  var rows = slRows.map(function (r) {
+    var o = { type: r.type, name: String(r.name).trim(), stock: r.type === 'gift' ? Number(r.stock) : UNLIMITED, weight: Number(r.weight) };
+    if (r.id) o.id = r.id; return o;
+  });
+  for (var i = 0; i < rows.length; i++) {
+    if (!rows[i].name) { note($('slMsg'), 'err', (i + 1) + '. dilimin adı boş.'); return; }
+    if (!(rows[i].weight > 0 && rows[i].weight <= 100)) { note($('slMsg'), 'err', (i + 1) + '. dilimin ağırlığı 0 ile 100 arasında olmalı.'); return; }
+  }
+  if (rows.length < 2) { note($('slMsg'), 'err', 'En az 2 dilim olmalı.'); return; }
+  if (!confirm('Çark ' + rows.length + ' dilimle güncellensin mi? Değişiklik telefonlarda ve büyük ekranda hemen geçerli olur.')) return;
+  try { await api('PUT', '/api/admin/slices', { slices: rows }); await loadStatus(); loadSlicesFromStatus(); note($('slMsg'), 'ok', 'Kaydedildi. Çark güncellendi.'); }
+  catch (e) { note($('slMsg'), 'err', e.message); }
+};
+
+/* ---------- katılımcılar ve geçmiş ---------- */
+async function loadParticipants() {
+  var q = $('pq').value.trim(), limit = 50;
+  try {
+    var d = await api('GET', '/api/admin/participants?limit=' + limit + '&offset=' + (pPage * limit) + (q ? '&q=' + encodeURIComponent(q) : ''));
+    $('pBody').innerHTML = d.items.length ? d.items.map(function (p) {
+      var res = p.prize ? '<span class="tag ' + esc(p.prize_type) + '">' + esc(p.prize) + '</span>' : '<span class="muted">-</span>';
+      return '<tr><td>' + trTime(p.created_at, true) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.company) + '</td><td>' + esc(p.phone) + '</td><td>' + esc(p.email) + '</td><td>' + res + '</td><td>' + p.spin_count + '</td></tr>';
+    }).join('') : '<tr><td colspan="7" class="muted">Kayıt bulunamadı.</td></tr>';
+    var from = d.total ? pPage * limit + 1 : 0, to = Math.min(d.total, (pPage + 1) * limit);
+    $('pInfo').textContent = from + '-' + to + ' / ' + d.total;
+    $('pPrev').disabled = pPage === 0; $('pNext').disabled = to >= d.total;
+  } catch (e) { $('pBody').innerHTML = '<tr><td colspan="7">' + esc(e.message) + '</td></tr>'; }
+}
+$('pq').addEventListener('input', function () { clearTimeout(pTimer); pPage = 0; pTimer = setTimeout(loadParticipants, 300); });
+$('pPrev').onclick = function () { if (pPage > 0) { pPage--; loadParticipants(); } };
+$('pNext').onclick = function () { pPage++; loadParticipants(); };
+async function loadHistory() {
+  try {
+    var d = await api('GET', '/api/admin/spins?limit=100');
+    $('hBody').innerHTML = d.items.length ? d.items.map(function (x) {
+      return '<tr><td>' + trTime(x.created_at, true) + '</td><td>' + esc(x.name || '-') + '</td><td>' + esc(x.company || '-') + '</td><td>' + esc(x.slice_name) + '</td><td><span class="tag ' + esc(x.slice_type) + '">' + esc(TYPE[x.slice_type] || x.slice_type) + '</span></td></tr>';
+    }).join('') : '<tr><td colspan="5" class="muted">Henüz çevirme yok.</td></tr>';
+  } catch (e) { $('hBody').innerHTML = '<tr><td colspan="5">' + esc(e.message) + '</td></tr>'; }
+}
+
+/* ---------- başlangıç ---------- */
+async function start() {
+  await loadStatus(); showApp(); fillEvent(true); loadLive().catch(function () {});
+  clearInterval(pollTimer);
+  pollTimer = setInterval(function () {
+    if (document.hidden) return;
+    loadStatus().catch(function () {});
+    if (curTab === 'genel') loadLive().catch(function () {});
+  }, 5000);
+}
+start().catch(function () { showLogin(); });
+</script>
+</body>
+</html>
