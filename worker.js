@@ -53,6 +53,14 @@ export default {
         if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
         return await updateSettings(request, env);
       }
+      if (path === '/api/admin/participants' && method === 'GET') {
+        if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
+        return await adminParticipants(url, env);
+      }
+      if (path === '/api/admin/spins' && method === 'GET') {
+        if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
+        return await adminSpins(url, env);
+      }
       if (path === '/api/export.csv' && method === 'GET') {
         if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
         return await exportCSV(env);
@@ -574,6 +582,38 @@ function eventPhase(s, now) {
   return 'break';
 }
 
+function clampInt(v, def, min, max) {
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+}
+
+// Katılımcı listesi: arama (ad, firma, GSM, e-posta) ve sayfalama. Yalnızca yönetici görür.
+async function adminParticipants(url, env) {
+  const q = cleanText(url.searchParams.get('q') || '', 60);
+  const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+  const offset = clampInt(url.searchParams.get('offset'), 0, 0, 1000000);
+  const like = '%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%';
+  const where = q ? `WHERE name LIKE ?1 ESCAPE '\\' OR company LIKE ?1 ESCAPE '\\' OR email LIKE ?1 ESCAPE '\\' OR phone LIKE ?1 ESCAPE '\\'` : '';
+  const bind = q ? [like] : [];
+  const total = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants ${where}`).bind(...bind).first();
+  const { results } = await env.DB.prepare(
+    `SELECT id, name, company, phone, email, prize, prize_type, spin_count, spins_left, has_gift, created_at
+       FROM participants ${where} ORDER BY id DESC LIMIT ${limit} OFFSET ${offset}`
+  ).bind(...bind).all();
+  return json({ total: total.c, limit, offset, items: results.map(p => ({ ...p, has_gift: !!p.has_gift })) });
+}
+
+// Son çevirmeler (tam adla)
+async function adminSpins(url, env) {
+  const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
+  const { results } = await env.DB.prepare(
+    `SELECT s.id, s.created_at, s.slice_name, s.slice_type, p.name, p.company
+       FROM spins s LEFT JOIN participants p ON p.id = s.participant_id
+      ORDER BY s.id DESC LIMIT ${limit}`
+  ).all();
+  return json({ items: results });
+}
+
 async function adminStatus(env) {
   const s = await loadSettings(env);
   const now = nowSec();
@@ -588,6 +628,9 @@ async function adminStatus(env) {
   const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants`).first();
   const sp = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins`).first();
   const gifts = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins WHERE slice_type = 'gift'`).first();
+  const qlen = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spin_queue WHERE last_seen >= ?`).bind(Date.now() - QUEUE_STALE_MS).first();
+  const { results: givenRows } = await env.DB.prepare(`SELECT slice_id, COUNT(*) AS c FROM spins GROUP BY slice_id`).all();
+  const givenBy = Object.fromEntries(givenRows.map(r => [r.slice_id, r.c]));
   return json({
     now: Date.now(),
     mode: s.mode,
@@ -602,7 +645,8 @@ async function adminStatus(env) {
       target: pacing.target, allowance: pacing.allowance, allowed: pacing.allowed, fraction: pacing.fraction
     },
     giftChancePercent: wAll > 0 ? Math.round((wGift / wAll) * 1000) / 10 : 0,
-    slices: slices.map(x => ({ id: x.id, type: x.type, name: x.name, stock: x.stock, weight: x.weight })),
+    slices: slices.map(x => ({ id: x.id, type: x.type, name: x.name, stock: x.stock, weight: x.weight, given: givenBy[x.id] || 0 })),
+    queueLength: qlen.c,
     participants: p.c,
     spins: sp.c,
     giftSpins: gifts.c,
