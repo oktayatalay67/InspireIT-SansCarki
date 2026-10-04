@@ -231,9 +231,12 @@
   .done-sub { color: #94a3b8; font-size: .85rem; line-height: 1.45; margin-top: 4px; }
   .offline { display: none; margin: 10px auto 0; text-align: center; font-size: .8rem; color: #fca5a5; }
   .offline.on { display: block; }
+  #sndBtn { position: fixed; top: 10px; right: 10px; z-index: 50; width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,.25);
+    background: rgba(15,23,42,.75); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; padding: 0; }
 </style>
 </head>
 <body>
+<button type="button" id="sndBtn" aria-label="Sesi aç/kapat">🔊</button>
 <div class="toast" id="toast" role="status"></div>
 <div class="container">
 
@@ -321,6 +324,7 @@
 </div>
 
 <script src="/wheel-core.js"></script>
+<script src="/sound.js"></script>
 <script>
 var WC = window.WheelCore;
 var $ = function (id) { return document.getElementById(id); };
@@ -366,6 +370,12 @@ var pollTimer = null, pollGen = 0, wakeLock = null;
 
 /* ---------- yardımcılar ---------- */
 function vibrate(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+var SND = window.ScSound;
+function updSndBtn() { $('sndBtn').textContent = SND.isMuted() ? '🔇' : '🔊'; }
+$('sndBtn').addEventListener('click', function () { SND.enable(); SND.setMuted(!SND.isMuted()); updSndBtn(); if (!SND.isMuted()) SND.count(1); });
+// Tarayıcılar sesi ancak bir dokunuştan sonra açar: ilk dokunuşta hazırla (formu doldururken, butona basarken).
+document.addEventListener('pointerdown', function () { SND.enable(); }, { passive: true });
+updSndBtn();
 async function postJSON(url, body) {
   var t0 = Date.now();
   var r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -471,16 +481,16 @@ function showResult(slice, left, quiet) {
   var again = left > 0;
   if (slice.type === 'gift') {
     setStatus('🎉', 'TEBRİKLER!', slice.name, 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.');
-    if (!quiet) { confetti(); vibrate([80, 60, 80, 60, 200]); }
+    if (!quiet) { confetti(); vibrate([80, 60, 80, 60, 200]); SND.win(); }
   } else if (slice.type === 'lose') {
     setStatus('😢', 'ÜZGÜNÜZ...', slice.name, 'Bu sefer şans yaver gitmedi.<br>Bizi tercih ettiğiniz için teşekkürler!');
-    if (!quiet) vibrate(120);
+    if (!quiet) { vibrate(120); SND.lose(); }
   } else if (slice.type === 'again') {
     setStatus('🔄', 'BİR HAK DAHA!', slice.name, 'Ücretsiz bir çevirme hakkı kazandınız!');
-    if (!quiet) vibrate([60, 40, 60]);
+    if (!quiet) { vibrate([60, 40, 60]); SND.again(); }
   } else if (slice.type === 'task') {
     setStatus('🎭', 'EĞLENCELİ GÖREV!', slice.name, 'Görevi tamamladıysan butona bas ve ekstra çevirme hakkını kullan!');
-    if (!quiet) vibrate([60, 40, 60]);
+    if (!quiet) { vibrate([60, 40, 60]); SND.again(); }
   }
   if (isTest) $('resultSub').innerHTML += '<br><b>TEST çevirmesi: kayıt oluşmadı.</b>';
   if (again) setButton(slice.type === 'task' ? '✅ Görevi yaptım, tekrar çevir' : '🎡 Tekrar çevir', joinQueue);
@@ -559,17 +569,17 @@ function frame(ts) {
       rot += 0.15 * dt; anim.from = rot; sl = toStart < 4000 ? anim.slices : slices;
       var sec = Math.ceil(toStart / 1000);
       if (sec <= 3 && sec !== anim.lastCd) {
-        anim.lastCd = sec; var c = $('countdown'); c.textContent = sec; c.classList.remove('on'); void c.offsetWidth; c.classList.add('on'); vibrate(25);
+        anim.lastCd = sec; var c = $('countdown'); c.textContent = sec; c.classList.remove('on'); void c.offsetWidth; c.classList.add('on'); vibrate(25); SND.count(sec);
       }
     } else {
       $('countdown').classList.remove('on');
       sl = anim.slices;
-      if (anim.target === null) { anim.target = WC.targetRotation(anim.from, sl.length, anim.idx, anim.offsetFrac, anim.turns); setStatus('', 'Çark dönüyor...', '', 'Bol şans!'); }
+      if (anim.target === null) { anim.target = WC.targetRotation(anim.from, sl.length, anim.idx, anim.offsetFrac, anim.turns); setStatus('', 'Çark dönüyor...', '', 'Bol şans!'); if (now - anim.startAt < 1500) SND.whoosh(); }
       var p = WC.progress(now, anim.startAt, anim.duration);
       if (p < 1) {
         rot = WC.rotationAt(anim.from, anim.target, p);
         var i = WC.sliceAtPointer(rot, sl.length);
-        if (i !== anim.lastIdx) { anim.lastIdx = i; vibrate(6); }
+        if (i !== anim.lastIdx) { anim.lastIdx = i; vibrate(6); if (ts - (anim.lastTick || 0) > 45) { anim.lastTick = ts; SND.tick(0.8); } }
       } else {
         rot = anim.target;
         if (!anim.done) { anim.done = true; var a = anim; anim = null; showResult(a.slice, a.spinsLeft, false); }

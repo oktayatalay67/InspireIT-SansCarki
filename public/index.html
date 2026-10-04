@@ -217,6 +217,7 @@
 
 <script src="/qrcode.js"></script>
 <script src="/wheel-core.js"></script>
+<script src="/sound.js"></script>
 <script>
 (function () {
   'use strict';
@@ -261,41 +262,27 @@
     }
   }
 
-  /* ------------------------------------------------ ses (WebAudio, dosyasız) */
-  var actx = null, soundOn = false;
-  function enableSound() {
-    try {
-      if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
-      if (actx.state === 'suspended') actx.resume();
-      soundOn = true; $('snd').hidden = true;
-      try { localStorage.setItem('sc_sound', '1'); } catch (e) {}
-      beep(660, 0.12, 'sine', 0.12);
-    } catch (e) {}
+  /* ------------------------------------------------ ses (sound.js, dosyasız) */
+  var SND = window.ScSound;
+  function showSndBtn() {
+    var b = $('snd');
+    b.hidden = SND.isOn();
+    b.textContent = SND.isMuted() ? 'Sesi aç (S)' : 'Sesi aç';
   }
-  function beep(freq, dur, type, vol, when) {
-    if (!soundOn || !actx) return;
-    var t0 = actx.currentTime + (when || 0), o = actx.createOscillator(), g = actx.createGain();
-    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
-    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.15, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.02);
-  }
-  function tickSound() { beep(1500, 0.035, 'square', 0.05); }
-  function resultSound(type) {
-    if (type === 'gift') [523, 659, 784, 1047, 1319].forEach(function (f, i) { beep(f, 0.38, 'triangle', 0.18, i * 0.12); });
-    else if (type === 'lose') { beep(330, 0.3, 'sawtooth', 0.08); beep(247, 0.5, 'sawtooth', 0.08, 0.28); }
-    else { beep(520, 0.18, 'triangle', 0.15); beep(780, 0.3, 'triangle', 0.15, 0.16); }
-  }
-  function countSound(n) { beep(n === 1 ? 880 : 620, 0.16, 'sine', 0.16); }
+  function enableSound() { SND.setMuted(false); SND.enable(); SND.count(1); showSndBtn(); }
+  function tickSound() { SND.tick(); }
+  function resultSound(type) { SND.result(type); }
+  function countSound(n) { SND.count(n); }
   $('snd').addEventListener('click', enableSound);
   document.addEventListener('keydown', function (e) {
-    if (e.key === 's' || e.key === 'S') { if (soundOn) { soundOn = false; $('snd').hidden = false; $('snd').textContent = 'Sesi aç'; } else enableSound(); }
+    if (e.key === 's' || e.key === 'S') { if (SND.isOn()) { SND.setMuted(true); showSndBtn(); } else enableSound(); }
     if (e.key === 'f' || e.key === 'F') toggleFs();
   });
   function toggleFs() {
     try { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); } catch (e) {}
   }
   document.addEventListener('dblclick', toggleFs);
-  try { if (localStorage.getItem('sc_sound') === '1') { /* tarayıcı kuralı: ses yine bir tıklama ister */ $('snd').textContent = 'Sesi aç'; } } catch (e) {}
+  showSndBtn();
   var cursorTimer = null;
   document.addEventListener('mousemove', function () { document.body.classList.remove('idle-cursor'); clearTimeout(cursorTimer); cursorTimer = setTimeout(function () { document.body.classList.add('idle-cursor'); }, 3000); });
 
@@ -428,6 +415,7 @@
         if (sec <= 3 && sec !== lastCountdown) { lastCountdown = sec; var c = $('countdown'); c.textContent = sec; c.classList.remove('tick'); void c.offsetWidth; c.classList.add('tick'); countSound(sec); }
       } else {
         slices = ev.slices; lastCountdown = 0;
+        if (!cur.whoosh) { cur.whoosh = true; if (now - ev.startAt < 1500) SND.whoosh(); }
         var n = slices.length;
         if (!cur.target) cur.target = WC.targetRotation(cur.from, n, ev.idx, ev.offsetFrac, ev.turns);
         var p = WC.progress(now, ev.startAt, ev.duration);
