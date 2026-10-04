@@ -62,6 +62,18 @@ export default {
         if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
         return await adminSpins(url, env);
       }
+      if (path === '/api/admin/test' && method === 'GET') {
+        if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
+        return await adminTest(env);
+      }
+      if (path === '/api/admin/test/users' && method === 'POST') {
+        if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
+        return await createTestUsers(request, env);
+      }
+      if (path === '/api/admin/test/users' && method === 'DELETE') {
+        if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
+        return await deleteTestData(env);
+      }
       if (path === '/api/export.csv' && method === 'GET') {
         if (!(await isAdmin(request, env))) return json({ error: 'Yetkisiz' }, 401);
         return await exportCSV(env);
@@ -189,7 +201,7 @@ async function getSlices(env) {
 
 async function getStats(env) {
   const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE is_test = 0`).first();
-  const g = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins WHERE slice_type = 'gift'`).first();
+  const g = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins s LEFT JOIN participants p ON p.id = s.participant_id WHERE s.slice_type = 'gift' AND COALESCE(p.is_test, 0) = 0`).first();
   return json({ participants: p.c, gifts: g.c });
 }
 
@@ -198,7 +210,7 @@ async function getLastWinners(env) {
   const { results } = await env.DB.prepare(
     `SELECT p.name AS name, s.slice_name AS prize, s.created_at AS created_at
        FROM spins s JOIN participants p ON p.id = s.participant_id
-      WHERE s.slice_type = 'gift' ORDER BY s.id DESC LIMIT 8`
+      WHERE s.slice_type = 'gift' AND p.is_test = 0 ORDER BY s.id DESC LIMIT 8`
   ).all();
   return json({ winners: results.map(r => ({ name: maskName(r.name), prize: r.prize, created_at: r.created_at })) });
 }
@@ -289,9 +301,11 @@ async function getMe(request, env) {
   const token = request.headers.get('X-Participant-Token') || '';
   if (token.length < 32) throw new HttpError('Geçersiz oturum', 401);
   const p = await env.DB.prepare(
-    `SELECT name, spins_left, has_gift, prize, prize_type, device_id FROM participants WHERE token = ?`
+    `SELECT name, spins_left, has_gift, prize, prize_type, device_id, is_test FROM participants WHERE token = ?`
   ).bind(token).first();
   if (!p) throw new HttpError('Geçersiz oturum', 401);
+  // Test kullanıcısı yalnızca test modu açıkken geçerlidir
+  if (p.is_test && !(await loadSettings(env)).testMode) throw new HttpError('Test modu kapalı', 401);
   // Cihazın kalan kayıt hakkı: istemcinin gönderdiği cihaz kimliği, yoksa kaydın kendi cihaz kimliği
   const dev = request.headers.get('X-Device-Id') || p.device_id || '';
   let deviceLeft = MAX_PER_DEVICE;
@@ -299,7 +313,7 @@ async function getMe(request, env) {
     const c = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE device_id = ? AND is_test = 0`).bind(dev).first();
     deviceLeft = Math.max(0, MAX_PER_DEVICE - c.c);
   }
-  return json({ name: p.name, spinsLeft: p.spins_left, hasGift: !!p.has_gift, prize: p.prize, prizeType: p.prize_type, deviceLeft });
+  return json({ name: p.name, spinsLeft: p.spins_left, hasGift: !!p.has_gift, prize: p.prize, prizeType: p.prize_type, deviceLeft, isTest: !!p.is_test });
 }
 
 /* ------------------------------------------------------------------ çevirme */
@@ -331,13 +345,14 @@ async function spinWheel(request, env) {
   if (token.length < 32) throw new HttpError('Geçersiz oturum', 401);
 
   const participant = await env.DB.prepare(
-    `SELECT id, name, has_gift, spins_left, email_norm, phone_norm FROM participants WHERE token = ?`
+    `SELECT id, name, has_gift, spins_left, email_norm, phone_norm, is_test FROM participants WHERE token = ?`
   ).bind(token).first();
   if (!participant) throw new HttpError('Geçersiz oturum', 401);
 
   const dropRow = () => env.DB.prepare(`DELETE FROM spin_queue WHERE participant_id = ?`).bind(participant.id).run();
 
   const settings = await loadSettings(env);
+  if (participant.is_test && !settings.testMode) { await dropRow(); throw new HttpError('Test modu kapalı', 403); }
   if (settings.paused) { await dropRow(); throw new HttpError('Çark kısa bir süre durduruldu, lütfen biraz sonra tekrar deneyin', 503); }
   if (participant.spins_left <= 0) { await dropRow(); throw new HttpError('Çevirme hakkınız kalmadı', 403); }
 
@@ -407,10 +422,14 @@ async function contactHasGift(env, p) {
 
 async function performSpin(env, participant, settings) {
   // Çevirme hakkını atomik tüket: paralel isteklerde yalnızca biri geçer.
-  const claim = await env.DB.prepare(
-    `UPDATE participants SET spins_left = spins_left - 1 WHERE id = ? AND spins_left > 0`
-  ).bind(participant.id).run();
-  if (!claim.meta.changes) throw new HttpError('Çevirme hakkınız kalmadı', 403);
+  // Test kullanıcısının hakkı sınırsızdır: hak düşülmez.
+  const isTest = !!participant.is_test;
+  if (!isTest) {
+    const claim = await env.DB.prepare(
+      `UPDATE participants SET spins_left = spins_left - 1 WHERE id = ? AND spins_left > 0`
+    ).bind(participant.id).run();
+    if (!claim.meta.changes) throw new HttpError('Çevirme hakkınız kalmadı', 403);
+  }
 
   let reservedGiftId = null;
   try {
@@ -422,9 +441,10 @@ async function performSpin(env, participant, settings) {
     // Hediye bütçesi: stoklu hediyeler yalnızca zaman payı doluysa çekilebilir.
     const pacing = await giftPacing(env, settings, nowSec());
     // 1 kişi = en fazla 1 hediye. Aynı e-posta veya telefonla kayıtlı başka biri hediye aldıysa o da sayılır.
-    const alreadyWon = participant.has_gift || await contactHasGift(env, participant);
+    const alreadyWon = !isTest && (participant.has_gift || await contactHasGift(env, participant));
     let pool = slices.filter(s => {
       if (s.type !== 'gift') return true;
+      if (isTest) return true;          // test kullanıcısı mod, bütçe ve 1 hediye kuralından bağımsız hediye görebilir
       if (alreadyWon) return false;
       if (s.stock >= UNLIMITED_STOCK) return true; // sınırsız hediye bütçeye tabi değil
       return pacing.allowed;
@@ -434,7 +454,7 @@ async function performSpin(env, participant, settings) {
     let chosen = null;
     while (pool.length) {
       const c = pickWeighted(pool);
-      if (c.type !== 'gift' || c.stock >= UNLIMITED_STOCK) { chosen = c; break; }
+      if (c.type !== 'gift' || c.stock >= UNLIMITED_STOCK || (isTest && !settings.testStock)) { chosen = c; break; }
       // Hediye stoğunu atomik rezerve et; başkası son hediyeyi aldıysa yeniden çek.
       const dec = await env.DB.prepare(
         `UPDATE slices SET stock = stock - 1 WHERE id = ? AND stock > 0 AND active = 1`
@@ -445,8 +465,8 @@ async function performSpin(env, participant, settings) {
     if (!chosen) throw new HttpError('Şu anda çark hazır değil', 503);
 
     const now = nowSec();
-    const grant = (chosen.type === 'again' || chosen.type === 'task') ? 1 : 0;
-    const isGift = chosen.type === 'gift';
+    const grant = (!isTest && (chosen.type === 'again' || chosen.type === 'task')) ? 1 : 0;
+    const isGift = chosen.type === 'gift' && !isTest;
 
     // Zamanlama: tüm çevirmeler tek bir sıraya girer (atomik), iki ekran aynı anda başlar.
     const snapshot = slices.map(publicSlice);
@@ -484,12 +504,13 @@ async function performSpin(env, participant, settings) {
       ...timing,
       serverNow: Date.now(),
       spinsLeft: after.spins_left,
-      hasGift: !!after.has_gift
+      hasGift: !!after.has_gift,
+      isTest
     };
   } catch (err) {
     // Başarısız çevirmede hakkı ve rezerve edilen stoğu geri ver.
     try {
-      await env.DB.prepare(`UPDATE participants SET spins_left = spins_left + 1 WHERE id = ?`).bind(participant.id).run();
+      if (!isTest) await env.DB.prepare(`UPDATE participants SET spins_left = spins_left + 1 WHERE id = ?`).bind(participant.id).run();
       if (reservedGiftId) await env.DB.prepare(`UPDATE slices SET stock = stock + 1 WHERE id = ?`).bind(reservedGiftId).run();
     } catch (e2) { console.error('Geri alma başarısız:', e2); }
     throw err;
@@ -565,15 +586,18 @@ async function exportCSV(env) {
 
 async function loadSettings(env) {
   const { results } = await env.DB.prepare(`SELECT k, v FROM settings`).all();
-  return parseSettings(results);
+  const m = Object.fromEntries(results.map(r => [r.k, r.v]));
+  return { ...parseSettings(results), testMode: m.test_mode === '1', testStock: m.test_stock === '1' };
 }
 
 // Etkinlik başlangıcından beri verilen ve kalan stoklu hediyelere göre bütçe durumu.
+// Test çevirmeleri 'verilen' sayılmaz; test stoktan düşüyorsa yalnızca kalan stok azalır (bütçe kalan stoğa göre yeniden hesaplanır).
 async function giftPacing(env, settings, now) {
   const since = settings.start || 0;
   const g = await env.DB.prepare(
     `SELECT COUNT(*) AS c FROM spins s JOIN slices sl ON sl.id = s.slice_id
-      WHERE s.slice_type = 'gift' AND sl.stock < ? AND s.created_at >= ?`
+       LEFT JOIN participants p ON p.id = s.participant_id
+      WHERE s.slice_type = 'gift' AND sl.stock < ? AND s.created_at >= ? AND COALESCE(p.is_test, 0) = 0`
   ).bind(UNLIMITED_STOCK, since).first();
   const r = await env.DB.prepare(
     `SELECT COALESCE(SUM(stock), 0) AS c FROM slices WHERE active = 1 AND type = 'gift' AND stock > 0 AND stock < ?`
@@ -640,7 +664,7 @@ async function adminParticipants(url, env) {
 async function adminSpins(url, env) {
   const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
   const { results } = await env.DB.prepare(
-    `SELECT s.id, s.created_at, s.slice_name, s.slice_type, p.name, p.company
+    `SELECT s.id, s.created_at, s.slice_name, s.slice_type, p.name, p.company, p.is_test
        FROM spins s LEFT JOIN participants p ON p.id = s.participant_id
       ORDER BY s.id DESC LIMIT ${limit}`
   ).all();
@@ -660,10 +684,13 @@ async function adminStatus(env) {
   const wGift = eligible.filter(x => x.type === 'gift').reduce((a, x) => a + x.weight, 0);
   const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE is_test = 0`).first();
   const bd = await env.DB.prepare(`SELECT v FROM settings WHERE k = 'blocked_domains'`).first();
-  const sp = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins`).first();
-  const gifts = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins WHERE slice_type = 'gift'`).first();
+  const realSpin = `FROM spins s LEFT JOIN participants p ON p.id = s.participant_id WHERE COALESCE(p.is_test, 0) = 0`;
+  const sp = await env.DB.prepare(`SELECT COUNT(*) AS c ${realSpin}`).first();
+  const gifts = await env.DB.prepare(`SELECT COUNT(*) AS c ${realSpin} AND s.slice_type = 'gift'`).first();
+  const tu = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE is_test = 1`).first();
+  const ts = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins s JOIN participants p ON p.id = s.participant_id WHERE p.is_test = 1`).first();
   const qlen = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spin_queue WHERE last_seen >= ?`).bind(Date.now() - QUEUE_STALE_MS).first();
-  const { results: givenRows } = await env.DB.prepare(`SELECT slice_id, COUNT(*) AS c FROM spins GROUP BY slice_id`).all();
+  const { results: givenRows } = await env.DB.prepare(`SELECT s.slice_id AS slice_id, COUNT(*) AS c FROM spins s LEFT JOIN participants p ON p.id = s.participant_id WHERE COALESCE(p.is_test, 0) = 0 GROUP BY s.slice_id`).all();
   const givenBy = Object.fromEntries(givenRows.map(r => [r.slice_id, r.c]));
   return json({
     now: Date.now(),
@@ -685,9 +712,55 @@ async function adminStatus(env) {
     spins: sp.c,
     giftSpins: gifts.c,
     queueFreeAt: s.nextFree,
+    testMode: s.testMode,
+    testStock: s.testStock,
+    testUsers: tu.c,
+    testSpins: ts.c,
     blockedDomains: bd ? bd.v : '',
     defaultBlockedDomains: DEFAULT_BLOCKED_DOMAINS
   });
+}
+
+const TEST_USER_MAX = 20;
+
+// Test kullanıcıları: sınırsız çevirme hakkı, bağlantıyla giriş. Yalnızca yönetici görür.
+async function adminTest(env) {
+  const s = await loadSettings(env);
+  const { results } = await env.DB.prepare(
+    `SELECT p.id, p.name, p.token, p.created_at,
+            (SELECT COUNT(*) FROM spins x WHERE x.participant_id = p.id) AS spins
+       FROM participants p WHERE p.is_test = 1 ORDER BY p.id ASC`
+  ).all();
+  return json({ testMode: s.testMode, testStock: s.testStock, max: TEST_USER_MAX, users: results });
+}
+
+async function createTestUsers(request, env) {
+  const body = await readJson(request);
+  const count = clampInt(body.count, 1, 1, 10);
+  const have = await env.DB.prepare(`SELECT COUNT(*) AS c, COALESCE(MAX(id), 0) AS m FROM participants WHERE is_test = 1`).first();
+  if (have.c + count > TEST_USER_MAX) throw new HttpError(`En fazla ${TEST_USER_MAX} test kullanıcısı olabilir (şu an ${have.c})`);
+  const now = nowSec();
+  const stmts = [];
+  for (let i = 1; i <= count; i++) {
+    const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
+    stmts.push(env.DB.prepare(
+      `INSERT INTO participants (name, company, title, phone, email, phone_norm, email_norm, device_id, suspect, token,
+                                 spins_left, has_gift, spin_count, is_test, terms_at, consent_at, created_at)
+       VALUES (?, 'TEST', 'TEST', '00000000000', 'test@test.invalid', NULL, NULL, NULL, NULL, ?, 1, 0, 0, 1, ?, ?, ?)`
+    ).bind(`Test Kullanıcı ${have.c + i}`, token, now, now, now));
+  }
+  await env.DB.batch(stmts);
+  return await adminTest(env);
+}
+
+// Yalnızca test kullanıcılarını ve onların çevirmelerini siler; gerçek kayıtlara dokunmaz. Stok geri yüklenmez.
+async function deleteTestData(env) {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM spin_queue WHERE participant_id IN (SELECT id FROM participants WHERE is_test = 1)`),
+    env.DB.prepare(`DELETE FROM spins WHERE participant_id IN (SELECT id FROM participants WHERE is_test = 1)`),
+    env.DB.prepare(`DELETE FROM participants WHERE is_test = 1`)
+  ]);
+  return await adminTest(env);
 }
 
 function parseEventStart(v) {
@@ -732,6 +805,14 @@ async function updateSettings(request, env) {
     const h = Number.parseFloat(body.hoursPerDay);
     if (!Number.isFinite(h) || h < 0.25 || h > 24) throw new HttpError('Günlük süre 0,25-24 saat arasında olmalı');
     set('event_hours', h);
+  }
+  if (body.testMode !== undefined) {
+    if (typeof body.testMode !== 'boolean') throw new HttpError('testMode true/false olmalı');
+    set('test_mode', body.testMode ? '1' : '0');
+  }
+  if (body.testStock !== undefined) {
+    if (typeof body.testStock !== 'boolean') throw new HttpError('testStock true/false olmalı');
+    set('test_stock', body.testStock ? '1' : '0');
   }
   if (body.blockedDomains !== undefined) {
     const list = parseDomainList(body.blockedDomains);

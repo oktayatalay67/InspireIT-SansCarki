@@ -325,9 +325,23 @@
 var WC = window.WheelCore;
 var $ = function (id) { return document.getElementById(id); };
 var LS = { token: 'isc_token', name: 'isc_name', last: 'isc_last', waiting: 'isc_waiting', device: 'isc_device' };
-function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+// Test bağlantısıyla açılan sekme oturumunu sekmeye özel (sessionStorage) tutar: aynı tarayıcıda birden çok test kullanıcısı denenebilir.
+var TEST_TAB = false;
+try { TEST_TAB = !!sessionStorage.getItem('isc_test'); } catch (e) {}
+function store(k) { try { return (TEST_TAB && k !== LS.device) ? sessionStorage : localStorage; } catch (e) { return null; } }
+function lsGet(k) { try { return store(k).getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { store(k).setItem(k, v); } catch (e) {} }
+function lsDel(k) { try { store(k).removeItem(k); } catch (e) {} }
+(function () {
+  var m = location.search.match(/[?&]test=([A-Za-z0-9-]{32,200})/);
+  if (!m) return;
+  try {
+    sessionStorage.setItem('isc_test', '1'); TEST_TAB = true;
+    sessionStorage.setItem(LS.token, m[1]); sessionStorage.removeItem(LS.name); sessionStorage.removeItem(LS.last); sessionStorage.removeItem(LS.waiting);
+    history.replaceState(null, '', location.pathname);
+  } catch (e) {}
+})();
+var isTest = false;
 
 // Cihaz kimliği: tarayıcıda kalıcı; sunucu cihaz başına en fazla 3 kayıt kabul eder.
 function deviceId() {
@@ -432,8 +446,8 @@ function newPerson() {
   spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; window.scrollTo(0, 0);
 }
 function setChip() {
-  $('spinsChip').textContent = 'Çevirme hakkı: ' + spinsLeft;
-  $('hello').textContent = participant ? 'Merhaba ' + participant.name.split(' ')[0] : '';
+  $('spinsChip').textContent = isTest ? 'TEST: sınırsız çevirme' : 'Çevirme hakkı: ' + spinsLeft;
+  $('hello').textContent = participant ? 'Merhaba ' + participant.name.split(' ')[0] + (isTest ? ' (test kullanıcısı)' : '') : '';
 }
 function setStatus(emoji, title, prize, sub) {
   var e = $('resultEmoji'); e.style.display = emoji ? 'block' : 'none'; e.textContent = emoji || '';
@@ -468,6 +482,7 @@ function showResult(slice, left, quiet) {
     setStatus('🎭', 'EĞLENCELİ GÖREV!', slice.name, 'Görevi tamamladıysan butona bas ve ekstra çevirme hakkını kullan!');
     if (!quiet) vibrate([60, 40, 60]);
   }
+  if (isTest) $('resultSub').innerHTML += '<br><b>TEST çevirmesi: kayıt oluşmadı.</b>';
   if (again) setButton(slice.type === 'task' ? '✅ Görevi yaptım, tekrar çevir' : '🎡 Tekrar çevir', joinQueue);
   else setButton(null);
   setDone();
@@ -524,7 +539,7 @@ function joinQueue() {
 
 function beginSpin(d) {
   if (d.slices && d.slices.length) slices = d.slices;
-  spinsLeft = d.spinsLeft; lsSet(LS.last, JSON.stringify(d));
+  spinsLeft = d.spinsLeft; isTest = !!d.isTest; lsSet(LS.last, JSON.stringify(d));
   startAnim(d);
 }
 function startAnim(d) {
@@ -571,12 +586,16 @@ function frame(ts) {
 async function refreshMe() {
   try {
     var r = await fetch('/api/me', { headers: { 'X-Participant-Token': participant.token, 'X-Device-Id': deviceId() } });
-    if (r.status === 401) { forgetSession(); return null; }
-    var d = await r.json(); spinsLeft = d.spinsLeft; if (typeof d.deviceLeft === 'number') deviceLeft = d.deviceLeft; return d;
+    if (r.status === 401) {
+      var wasTest = TEST_TAB; forgetSession();
+      if (wasTest) { try { sessionStorage.removeItem('isc_test'); } catch (e) {} TEST_TAB = false; formError('Test bağlantısı geçersiz ya da test modu kapalı.'); }
+      return null;
+    }
+    var d = await r.json(); spinsLeft = d.spinsLeft; if (typeof d.deviceLeft === 'number') deviceLeft = d.deviceLeft; isTest = !!d.isTest; return d;
   } catch (e) { return null; }
 }
 function forgetSession() {
-  stopPolling(); keepAwake(false); anim = null; participant = null; spinsLeft = 0;
+  stopPolling(); keepAwake(false); anim = null; participant = null; spinsLeft = 0; isTest = false;
   lsDel(LS.token); lsDel(LS.name); lsDel(LS.last); lsDel(LS.waiting);
   showView('form'); document.getElementById('spinBtn').disabled = false;
 }
