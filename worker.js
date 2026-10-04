@@ -2,6 +2,7 @@
 // Aşama 1: güvenli çevirme akışı, 1 kişi = 1 hediye, atomik stok, olaylar D1'de.
 
 import { parseSettings, isConfigured, computeAllowance, activeElapsedSec, totalActiveSec, eventEndSec } from './pacing.js';
+import { MAX_PER_DEVICE, MAX_PER_CONTACT, checkPhone, checkEmail, checkText, parseDomainList, DEFAULT_BLOCKED_DOMAINS } from './validate.js';
 
 const SLICE_TYPES = ['gift', 'lose', 'again', 'task'];
 // Çevirme zamanlaması (ms): her çevirme büyük ekranda sırayla oynar, çakışmaz.
@@ -72,7 +73,7 @@ export default {
       if (path.startsWith('/api/')) return json({ error: 'Bulunamadı' }, 404);
       return env.ASSETS.fetch(request);
     } catch (err) {
-      if (err instanceof HttpError) return json({ error: err.message }, err.status);
+      if (err instanceof HttpError) return json(err.field ? { error: err.message, field: err.field } : { error: err.message }, err.status);
       console.error('Beklenmeyen hata:', err && err.stack ? err.stack : err);
       return json({ error: 'Sunucu hatası, lütfen tekrar deneyin' }, 500);
     }
@@ -82,7 +83,7 @@ export default {
 /* ---------------------------------------------------------------- yardımcılar */
 
 class HttpError extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400, field = null) { super(message); this.status = status; this.field = field; }
 }
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -109,17 +110,6 @@ function secureRandom() {
 function cleanText(v, max) {
   return String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max + 1);
 }
-
-// 10 haneli GSM (5XXXXXXXXX) döndürür, geçersizse null
-function normalizePhone(raw) {
-  let d = String(raw ?? '').replace(/\D/g, '');
-  if (d.startsWith('0090') && d.length === 14) d = d.slice(4);
-  else if (d.startsWith('90') && d.length === 12) d = d.slice(2);
-  else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
-  return /^5\d{9}$/.test(d) ? d : null;
-}
-
-function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
 
 function maskName(name) {
   const parts = String(name || '').trim().split(/\s+/);
@@ -198,7 +188,7 @@ async function getSlices(env) {
 }
 
 async function getStats(env) {
-  const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants`).first();
+  const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE is_test = 0`).first();
   const g = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins WHERE slice_type = 'gift'`).first();
   return json({ participants: p.c, gifts: g.c });
 }
@@ -241,44 +231,75 @@ async function getEvents(request, env) {
 async function register(request, env) {
   const body = await readJson(request);
 
-  const name = cleanText(body.name, 80);
-  const company = cleanText(body.company, 100);
-  const email = cleanText(body.email, 120).toLowerCase();
-  const phoneNorm = normalizePhone(body.phone);
+  const fail = (msg, field, status = 400) => { throw new HttpError(msg, status, field); };
+  const name = checkText(body.name, 'Ad Soyad', 3, 80, { fullName: true });
+  if (name.error) fail(name.error, 'name');
+  const company = checkText(body.company, 'Firma ünvanı', 2, 100);
+  if (company.error) fail(company.error, 'company');
+  const title = checkText(body.title, 'Görev / Ünvan', 2, 60);
+  if (title.error) fail(title.error, 'title');
+  const phone = checkPhone(body.phone);
+  if (phone.error) fail(phone.error, 'phone');
+  const extra = await env.DB.prepare(`SELECT v FROM settings WHERE k = 'blocked_domains'`).first();
+  const mail = checkEmail(body.email, extra ? parseDomainList(extra.v) || [] : []);
+  if (mail.error) fail(mail.error, 'email');
+  const deviceId = String(body.deviceId ?? '');
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(deviceId)) fail('Cihaz tanımlanamadı, sayfayı yenileyip tekrar deneyin', null);
+  if (body.terms !== true || body.consent !== true) fail('Katılım koşulları ve iletişim izni onaylanmalı', null);
 
-  if (name.length < 3 || name.length > 80) throw new HttpError('Ad Soyad en az 3 karakter olmalı');
-  if (company.length < 2 || company.length > 100) throw new HttpError('Firma ünvanı geçersiz');
-  if (!phoneNorm) throw new HttpError('GSM numarası geçersiz (05XX XXX XX XX biçiminde olmalı)');
-  if (!validEmail(email) || email.length > 120) throw new HttpError('Email adresi geçersiz');
-  if (body.terms !== true || body.consent !== true) throw new HttpError('Katılım koşulları ve iletişim izni onaylanmalı');
-
-  const dup = await env.DB.prepare(
-    `SELECT id FROM participants WHERE email = ? OR phone_norm = ? LIMIT 1`
-  ).bind(email, phoneNorm).first();
-  if (dup) throw new HttpError('Bu email veya telefon ile zaten katıldınız', 409);
-
+  const suspect = [...name.suspect, ...company.suspect, ...title.suspect, ...mail.suspect].join('; ') || null;
   const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
   const now = nowSec();
-  try {
-    await env.DB.prepare(
-      `INSERT INTO participants (name, company, phone, email, phone_norm, token, spins_left, has_gift, spin_count, terms_at, consent_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`
-    ).bind(name, company, '0' + phoneNorm, email, phoneNorm, token, now, now, now).run();
-  } catch (err) {
-    if (String(err && err.message).includes('UNIQUE')) throw new HttpError('Bu email veya telefon ile zaten katıldınız', 409);
-    throw err;
+
+  // Sınır kontrolü ve ekleme tek atomik INSERT...SELECT: paralel isteklerde sınır aşılmaz.
+  const ins = await env.DB.prepare(
+    `INSERT INTO participants (name, company, title, phone, email, phone_norm, email_norm, device_id, suspect, token,
+                               spins_left, has_gift, spin_count, is_test, terms_at, consent_at, created_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?5, ?7, ?8, ?9, 1, 0, 0, 0, ?10, ?10, ?10
+      WHERE (SELECT COUNT(*) FROM participants WHERE email_norm = ?5 AND is_test = 0) < ?11
+        AND (SELECT COUNT(*) FROM participants WHERE phone_norm = ?6 AND is_test = 0) < ?11
+        AND (SELECT COUNT(*) FROM participants WHERE device_id = ?7 AND is_test = 0) < ?12`
+  ).bind(name.value, company.value, title.value, '0' + phone.norm, mail.email, phone.norm, deviceId, suspect, token, now,
+         MAX_PER_CONTACT, MAX_PER_DEVICE).run();
+
+  const c = await env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM participants WHERE email_norm = ?1 AND is_test = 0) AS ce,
+            (SELECT COUNT(*) FROM participants WHERE phone_norm = ?2 AND is_test = 0) AS cp,
+            (SELECT COUNT(*) FROM participants WHERE device_id = ?3 AND is_test = 0) AS cd`
+  ).bind(mail.email, phone.norm, deviceId).first();
+
+  if (!ins.meta.changes) {
+    if (c.ce >= MAX_PER_CONTACT) fail(`Bu e-posta adresi ${MAX_PER_CONTACT} kez kullanıldı, daha fazla kullanılamaz`, 'email', 409);
+    if (c.cp >= MAX_PER_CONTACT) fail(`Bu telefon numarası ${MAX_PER_CONTACT} kez kullanıldı, daha fazla kullanılamaz`, 'phone', 409);
+    if (c.cd >= MAX_PER_DEVICE) fail(`Bu cihazdan en fazla ${MAX_PER_DEVICE} kişi katılabilir`, null, 403);
+    throw new HttpError('Kayıt yapılamadı, lütfen tekrar deneyin', 409);
   }
-  return json({ token, name });
+
+  // Bu kayıt e-posta veya telefon için son hak mıydı?
+  let warning = null;
+  if (c.ce >= MAX_PER_CONTACT || c.cp >= MAX_PER_CONTACT) {
+    warning = `Bu ${c.ce >= MAX_PER_CONTACT ? 'e-posta adresi' : 'telefon numarası'} ${MAX_PER_CONTACT}. kez kullanıldı; bir daha kullanılamaz. Aynı kişi yalnızca 1 hediye kazanabilir.`;
+  } else if (c.ce > 1 || c.cp > 1) {
+    warning = `Bu ${c.ce > 1 ? 'e-posta adresi' : 'telefon numarası'} ${Math.max(c.ce, c.cp)}. kez kullanılıyor (en fazla ${MAX_PER_CONTACT}). Aynı kişi yalnızca 1 hediye kazanabilir.`;
+  }
+  return json({ token, name: name.value, warning, deviceLeft: MAX_PER_DEVICE - c.cd });
 }
 
 async function getMe(request, env) {
   const token = request.headers.get('X-Participant-Token') || '';
   if (token.length < 32) throw new HttpError('Geçersiz oturum', 401);
   const p = await env.DB.prepare(
-    `SELECT name, spins_left, has_gift, prize, prize_type FROM participants WHERE token = ?`
+    `SELECT name, spins_left, has_gift, prize, prize_type, device_id FROM participants WHERE token = ?`
   ).bind(token).first();
   if (!p) throw new HttpError('Geçersiz oturum', 401);
-  return json({ name: p.name, spinsLeft: p.spins_left, hasGift: !!p.has_gift, prize: p.prize, prizeType: p.prize_type });
+  // Cihazın kalan kayıt hakkı: istemcinin gönderdiği cihaz kimliği, yoksa kaydın kendi cihaz kimliği
+  const dev = request.headers.get('X-Device-Id') || p.device_id || '';
+  let deviceLeft = MAX_PER_DEVICE;
+  if (/^[A-Za-z0-9-]{16,64}$/.test(dev)) {
+    const c = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE device_id = ? AND is_test = 0`).bind(dev).first();
+    deviceLeft = Math.max(0, MAX_PER_DEVICE - c.c);
+  }
+  return json({ name: p.name, spinsLeft: p.spins_left, hasGift: !!p.has_gift, prize: p.prize, prizeType: p.prize_type, deviceLeft });
 }
 
 /* ------------------------------------------------------------------ çevirme */
@@ -310,7 +331,7 @@ async function spinWheel(request, env) {
   if (token.length < 32) throw new HttpError('Geçersiz oturum', 401);
 
   const participant = await env.DB.prepare(
-    `SELECT id, name, has_gift, spins_left FROM participants WHERE token = ?`
+    `SELECT id, name, has_gift, spins_left, email_norm, phone_norm FROM participants WHERE token = ?`
   ).bind(token).first();
   if (!participant) throw new HttpError('Geçersiz oturum', 401);
 
@@ -376,6 +397,14 @@ async function queueState(env, participantId, nowMs) {
   return { position, total: agg.c, freeInMs };
 }
 
+async function contactHasGift(env, p) {
+  if (!p.email_norm && !p.phone_norm) return false;
+  const r = await env.DB.prepare(
+    `SELECT 1 AS x FROM participants WHERE has_gift = 1 AND id != ?1 AND ((?2 != '' AND email_norm = ?2) OR (?3 != '' AND phone_norm = ?3)) LIMIT 1`
+  ).bind(p.id, p.email_norm || '', p.phone_norm || '').first();
+  return !!r;
+}
+
 async function performSpin(env, participant, settings) {
   // Çevirme hakkını atomik tüket: paralel isteklerde yalnızca biri geçer.
   const claim = await env.DB.prepare(
@@ -392,10 +421,11 @@ async function performSpin(env, participant, settings) {
 
     // Hediye bütçesi: stoklu hediyeler yalnızca zaman payı doluysa çekilebilir.
     const pacing = await giftPacing(env, settings, nowSec());
-    // 1 kişi = en fazla 1 hediye
+    // 1 kişi = en fazla 1 hediye. Aynı e-posta veya telefonla kayıtlı başka biri hediye aldıysa o da sayılır.
+    const alreadyWon = participant.has_gift || await contactHasGift(env, participant);
     let pool = slices.filter(s => {
       if (s.type !== 'gift') return true;
-      if (participant.has_gift) return false;
+      if (alreadyWon) return false;
       if (s.stock >= UNLIMITED_STOCK) return true; // sınırsız hediye bütçeye tabi değil
       return pacing.allowed;
     });
@@ -514,12 +544,12 @@ function csvCell(v) {
 async function exportCSV(env) {
   // Türkiye saati (UTC+3, yaz saati uygulaması yok)
   const { results } = await env.DB.prepare(
-    `SELECT datetime(created_at, 'unixepoch', '+3 hours') AS tarih, name, company, phone, email,
-            prize, prize_type, spin_count, consent_at
-       FROM participants ORDER BY id ASC`
+    `SELECT datetime(created_at, 'unixepoch', '+3 hours') AS tarih, name, company, title, phone, email,
+            prize, prize_type, spin_count, consent_at, suspect
+       FROM participants WHERE is_test = 0 ORDER BY id ASC`
   ).all();
-  const header = ['Tarih', 'Ad Soyad', 'Firma', 'GSM', 'Email', 'Son Sonuç / Hediye', 'Tür', 'Çevirme', 'İzin'];
-  const rows = results.map(p => [p.tarih, p.name, p.company, p.phone, p.email, p.prize, p.prize_type, p.spin_count, p.consent_at ? 'Evet' : 'Hayır']);
+  const header = ['Tarih', 'Ad Soyad', 'Firma', 'Görev / Ünvan', 'GSM', 'Email', 'Son Sonuç / Hediye', 'Tür', 'Çevirme', 'İzin', 'Şüpheli'];
+  const rows = results.map(p => [p.tarih, p.name, p.company, p.title, p.phone, p.email, p.prize, p.prize_type, p.spin_count, p.consent_at ? 'Evet' : 'Hayır', p.suspect]);
   const csv = '﻿' + [header, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
   const day = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
   return new Response(csv, {
@@ -593,14 +623,17 @@ async function adminParticipants(url, env) {
   const limit = clampInt(url.searchParams.get('limit'), 50, 1, 200);
   const offset = clampInt(url.searchParams.get('offset'), 0, 0, 1000000);
   const like = '%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%';
-  const where = q ? `WHERE name LIKE ?1 ESCAPE '\\' OR company LIKE ?1 ESCAPE '\\' OR email LIKE ?1 ESCAPE '\\' OR phone LIKE ?1 ESCAPE '\\'` : '';
+  const where = q ? `WHERE p.name LIKE ?1 ESCAPE '\\' OR p.company LIKE ?1 ESCAPE '\\' OR p.title LIKE ?1 ESCAPE '\\' OR p.email LIKE ?1 ESCAPE '\\' OR p.phone LIKE ?1 ESCAPE '\\'` : '';
   const bind = q ? [like] : [];
-  const total = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants ${where}`).bind(...bind).first();
+  const total = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants p ${where}`).bind(...bind).first();
   const { results } = await env.DB.prepare(
-    `SELECT id, name, company, phone, email, prize, prize_type, spin_count, spins_left, has_gift, created_at
-       FROM participants ${where} ORDER BY id DESC LIMIT ${limit} OFFSET ${offset}`
+    `SELECT p.id, p.name, p.company, p.title, p.phone, p.email, p.prize, p.prize_type, p.spin_count, p.spins_left, p.has_gift,
+            p.suspect, p.is_test, p.created_at,
+            (SELECT COUNT(*) FROM participants x WHERE x.id != p.id AND x.is_test = 0 AND p.is_test = 0
+               AND ((p.email_norm IS NOT NULL AND x.email_norm = p.email_norm) OR (p.phone_norm IS NOT NULL AND x.phone_norm = p.phone_norm))) AS same_contact
+       FROM participants p ${where} ORDER BY p.id DESC LIMIT ${limit} OFFSET ${offset}`
   ).bind(...bind).all();
-  return json({ total: total.c, limit, offset, items: results.map(p => ({ ...p, has_gift: !!p.has_gift })) });
+  return json({ total: total.c, limit, offset, items: results.map(p => ({ ...p, has_gift: !!p.has_gift, is_test: !!p.is_test })) });
 }
 
 // Son çevirmeler (tam adla)
@@ -625,7 +658,8 @@ async function adminStatus(env) {
   const eligible = live.filter(x => x.type !== 'gift' || x.stock >= UNLIMITED_STOCK || pacing.allowed);
   const wAll = eligible.reduce((a, x) => a + x.weight, 0);
   const wGift = eligible.filter(x => x.type === 'gift').reduce((a, x) => a + x.weight, 0);
-  const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants`).first();
+  const p = await env.DB.prepare(`SELECT COUNT(*) AS c FROM participants WHERE is_test = 0`).first();
+  const bd = await env.DB.prepare(`SELECT v FROM settings WHERE k = 'blocked_domains'`).first();
   const sp = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins`).first();
   const gifts = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spins WHERE slice_type = 'gift'`).first();
   const qlen = await env.DB.prepare(`SELECT COUNT(*) AS c FROM spin_queue WHERE last_seen >= ?`).bind(Date.now() - QUEUE_STALE_MS).first();
@@ -650,7 +684,9 @@ async function adminStatus(env) {
     participants: p.c,
     spins: sp.c,
     giftSpins: gifts.c,
-    queueFreeAt: s.nextFree
+    queueFreeAt: s.nextFree,
+    blockedDomains: bd ? bd.v : '',
+    defaultBlockedDomains: DEFAULT_BLOCKED_DOMAINS
   });
 }
 
@@ -696,6 +732,12 @@ async function updateSettings(request, env) {
     const h = Number.parseFloat(body.hoursPerDay);
     if (!Number.isFinite(h) || h < 0.25 || h > 24) throw new HttpError('Günlük süre 0,25-24 saat arasında olmalı');
     set('event_hours', h);
+  }
+  if (body.blockedDomains !== undefined) {
+    const list = parseDomainList(body.blockedDomains);
+    if (list === null) throw new HttpError('Engelli alan adı listesinde geçersiz giriş var (örnek: sahte.com)');
+    if (list.length > 200) throw new HttpError('En fazla 200 alan adı eklenebilir');
+    set('blocked_domains', list.join(','));
   }
   if (!upserts.length) throw new HttpError('Değiştirilecek ayar yok');
   await env.DB.batch(upserts);

@@ -27,11 +27,18 @@ CREATE TABLE IF NOT EXISTS participants (
   spins_left INTEGER NOT NULL DEFAULT 0,
   has_gift INTEGER NOT NULL DEFAULT 0,
   terms_at INTEGER,
-  consent_at INTEGER
+  consent_at INTEGER,
+  title TEXT,                              -- görev / ünvan (geri arama için)
+  email_norm TEXT,                         -- küçük harfli e-posta (sınır kontrolü)
+  device_id TEXT,                          -- tarayıcıda saklanan cihaz kimliği (cihaz başına en fazla 3 kişi)
+  suspect TEXT,                            -- şüpheli kayıt nedenleri (engellemez, panelde işaretlenir)
+  is_test INTEGER NOT NULL DEFAULT 0       -- test kullanıcısı (listede etiketli, CSV'ye girmez)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_participants_email ON participants(email);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_participants_phone_norm ON participants(phone_norm);
+-- Aynı e-posta veya telefonla en fazla 3 kayıt serbest olduğu için bunlar benzersiz DEĞİL; sınırı sunucu uygular.
+CREATE INDEX IF NOT EXISTS ix_participants_email_norm ON participants(email_norm);
+CREATE INDEX IF NOT EXISTS ix_participants_phone_norm ON participants(phone_norm);
+CREATE INDEX IF NOT EXISTS ix_participants_device ON participants(device_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_participants_token ON participants(token);
 
 CREATE TABLE IF NOT EXISTS spins (

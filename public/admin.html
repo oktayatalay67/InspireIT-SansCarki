@@ -13,7 +13,7 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
   body { background: var(--bg); color: var(--text); min-height: 100vh; font-size: 15px; line-height: 1.45; }
-  button, input, select { font: inherit; color: inherit; }
+  button, input, select, textarea { font: inherit; color: inherit; }
   a { color: var(--brand2); }
   .hidden { display: none !important; }
 
@@ -52,9 +52,9 @@
   .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
   .field { display: flex; flex-direction: column; gap: 5px; }
   .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
-  input[type=text], input[type=password], input[type=number], input[type=datetime-local], input[type=search], select {
+  input[type=text], input[type=password], input[type=number], input[type=datetime-local], input[type=search], select, textarea {
     background: #0c1222; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; min-width: 0; }
-  input:focus, select:focus { outline: 2px solid var(--brand2); outline-offset: 1px; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand2); outline-offset: 1px; }
   .stack > * + * { margin-top: 14px; }
 
   .bar-track { height: 14px; background: #0c1222; border-radius: 99px; overflow: hidden; position: relative; border: 1px solid var(--line); }
@@ -158,6 +158,14 @@
         <div><button class="btn primary" id="evSave">Kaydet</button></div>
         <div id="evMsg"></div>
       </div>
+      <div class="card stack" style="margin-top:14px">
+        <h2 style="margin-top:6px">Sahte e-posta engeli</h2>
+        <p class="muted">Aşağıdaki alan adlarıyla biten e-posta adresleri kayıtta reddedilir (alt alan adları dahil). Sahte telefon numaraları ve çok kısa veya <code>123</code> ile başlayan e-posta adları kod tarafında zaten engellenir. Alan adlarını virgül, boşluk veya yeni satırla ayırın.</p>
+        <div class="field"><label for="bdList">Ek engelli alan adları</label><textarea id="bdList" rows="4" placeholder="ornek: sahte.com, deneme.net" style="width:100%;max-width:560px"></textarea></div>
+        <div class="muted" id="bdDefault" style="font-size:.8rem"></div>
+        <div><button class="btn primary" id="bdSave">Kaydet</button></div>
+        <div id="bdMsg"></div>
+      </div>
     </section>
 
     <!-- HEDİYELER -->
@@ -183,10 +191,10 @@
     <section id="tab-katilimci" class="hidden">
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:end;margin-bottom:12px">
-          <div class="field"><label for="pq">Ara (ad, firma, GSM, e-posta)</label><input type="search" id="pq" placeholder="Aramak için yazın" style="width:280px;max-width:100%"></div>
+          <div class="field"><label for="pq">Ara (ad, firma, görev, GSM, e-posta)</label><input type="search" id="pq" placeholder="Aramak için yazın" style="width:280px;max-width:100%"></div>
           <a class="btn" href="/api/export.csv" download>CSV indir (tümü)</a>
         </div>
-        <div class="scroll"><table class="tbl"><thead><tr><th>Kayıt</th><th>Ad Soyad</th><th>Firma</th><th>GSM</th><th>E-posta</th><th>Sonuç</th><th>Çevirme</th></tr></thead><tbody id="pBody"></tbody></table></div>
+        <div class="scroll"><table class="tbl"><thead><tr><th>Kayıt</th><th>Ad Soyad</th><th>Firma</th><th>Görev / Ünvan</th><th>GSM</th><th>E-posta</th><th>Sonuç</th><th>Çevirme</th><th>Not</th></tr></thead><tbody id="pBody"></tbody></table></div>
         <div class="pager"><button class="btn sm" id="pPrev">Önceki</button><span class="muted" id="pInfo"></span><button class="btn sm" id="pNext">Sonraki</button></div>
       </div>
     </section>
@@ -303,6 +311,17 @@ function fillEvent(force) {
   if (sc) { sm.classList.remove('hidden'); sm.className = 'msg warn'; sm.textContent = 'Kayıtlı plan: ' + sc.days + ' gün, günde ' + sc.hoursPerDay + ' saat, toplam ' + sc.totalHours + ' saat. Bitiş: ' + trTime(sc.end, true) + ' (Türkiye saati).'; }
   else { sm.className = 'msg warn'; sm.textContent = 'Henüz etkinlik zamanı girilmedi. Otomatik modda hediye çıkması için tarih ve saat gereklidir.'; }
 }
+function fillBlocked(force) {
+  if (!S) return;
+  if (!force && $('bdMsg').dataset.dirty === '1') return;
+  $('bdList').value = (S.blockedDomains || '').split(',').filter(Boolean).join('\n');
+  $('bdDefault').textContent = 'Her zaman engelli (değiştirilemez): ' + (S.defaultBlockedDomains || []).join(', ');
+}
+$('bdList').addEventListener('input', function () { $('bdMsg').dataset.dirty = '1'; });
+$('bdSave').onclick = async function () {
+  try { S = await api('PUT', '/api/admin/settings', { blockedDomains: $('bdList').value }); $('bdMsg').dataset.dirty = '0'; fillBlocked(true); note($('bdMsg'), 'ok', 'Kaydedildi.'); }
+  catch (e) { note($('bdMsg'), 'err', e.message); }
+};
 function syncModes() { Array.prototype.forEach.call(document.querySelectorAll('.mode'), function (l) { l.classList.toggle('on', l.querySelector('input').checked); }); }
 $('modes').addEventListener('change', function () { syncModes(); $('evMsg').dataset.dirty = '1'; });
 ['evStart', 'evDays', 'evHours'].forEach(function (id) { $(id).addEventListener('input', function () { $('evMsg').dataset.dirty = '1'; }); });
@@ -395,12 +414,16 @@ async function loadParticipants() {
     var d = await api('GET', '/api/admin/participants?limit=' + limit + '&offset=' + (pPage * limit) + (q ? '&q=' + encodeURIComponent(q) : ''));
     $('pBody').innerHTML = d.items.length ? d.items.map(function (p) {
       var res = p.prize ? '<span class="tag ' + esc(p.prize_type) + '">' + esc(p.prize) + '</span>' : '<span class="muted">-</span>';
-      return '<tr><td>' + trTime(p.created_at, true) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.company) + '</td><td>' + esc(p.phone) + '</td><td>' + esc(p.email) + '</td><td>' + res + '</td><td>' + p.spin_count + '</td></tr>';
-    }).join('') : '<tr><td colspan="7" class="muted">Kayıt bulunamadı.</td></tr>';
+      var notes = [];
+      if (p.is_test) notes.push('<span class="tag">TEST</span>');
+      if (p.same_contact > 0) notes.push('<span class="tag again" title="Aynı e-posta veya telefonla başka kayıt var">Aynı kişi: ' + (p.same_contact + 1) + ' kayıt</span>');
+      if (p.suspect) notes.push('<span class="tag lose" title="' + esc(p.suspect) + '">Şüpheli</span>');
+      return '<tr><td>' + trTime(p.created_at, true) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.company) + '</td><td>' + esc(p.title || '-') + '</td><td>' + esc(p.phone) + '</td><td>' + esc(p.email) + '</td><td>' + res + '</td><td>' + p.spin_count + '</td><td>' + notes.join(' ') + '</td></tr>';
+    }).join('') : '<tr><td colspan="9" class="muted">Kayıt bulunamadı.</td></tr>';
     var from = d.total ? pPage * limit + 1 : 0, to = Math.min(d.total, (pPage + 1) * limit);
     $('pInfo').textContent = from + '-' + to + ' / ' + d.total;
     $('pPrev').disabled = pPage === 0; $('pNext').disabled = to >= d.total;
-  } catch (e) { $('pBody').innerHTML = '<tr><td colspan="7">' + esc(e.message) + '</td></tr>'; }
+  } catch (e) { $('pBody').innerHTML = '<tr><td colspan="9">' + esc(e.message) + '</td></tr>'; }
 }
 $('pq').addEventListener('input', function () { clearTimeout(pTimer); pPage = 0; pTimer = setTimeout(loadParticipants, 300); });
 $('pPrev').onclick = function () { if (pPage > 0) { pPage--; loadParticipants(); } };
@@ -416,7 +439,7 @@ async function loadHistory() {
 
 /* ---------- başlangıç ---------- */
 async function start() {
-  await loadStatus(); showApp(); fillEvent(true); loadLive().catch(function () {});
+  await loadStatus(); showApp(); fillEvent(true); fillBlocked(true); loadLive().catch(function () {});
   clearInterval(pollTimer);
   pollTimer = setInterval(function () {
     if (document.hidden) return;

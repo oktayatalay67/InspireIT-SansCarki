@@ -223,11 +223,18 @@
   .ghost-btn { margin-top: 14px; padding: 12px 22px; border-radius: 12px; border: 1px solid rgba(255,255,255,.25); background: transparent;
     color: #cbd5e1; font-size: .9rem; cursor: pointer; }
   .qpos { font-size: 2.4rem; font-weight: 900; text-align: center; color: #fbbf24; line-height: 1.1; }
+  .toast { position: fixed; left: 12px; right: 12px; top: 12px; z-index: 1000; padding: 14px 16px; border-radius: 14px; display: none;
+    background: rgba(245,158,11,.97); color: #1f1300; font-weight: 700; font-size: .9rem; line-height: 1.4; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .toast.on { display: block; }
+  .done-box { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.12); text-align: center; }
+  .done-msg { color: #cbd5e1; font-size: .95rem; font-weight: 700; }
+  .done-sub { color: #94a3b8; font-size: .85rem; line-height: 1.45; margin-top: 4px; }
   .offline { display: none; margin: 10px auto 0; text-align: center; font-size: .8rem; color: #fca5a5; }
   .offline.on { display: block; }
 </style>
 </head>
 <body>
+<div class="toast" id="toast" role="status"></div>
 <div class="container">
 
   <div class="logo-area">
@@ -248,6 +255,11 @@
         <label>Firma Ünvanı *</label>
         <input type="text" name="company" required autocomplete="organization" placeholder="Firma adı">
         <div class="err-msg">Lütfen firma adını girin</div>
+      </div>
+      <div class="field" id="fTitle">
+        <label>Görev / Ünvan *</label>
+        <input type="text" name="title" required autocomplete="organization-title" placeholder="Örn. BT Müdürü">
+        <div class="err-msg">Lütfen görevinizi girin</div>
       </div>
       <div class="field" id="fPhone">
         <label>GSM Numarası *</label>
@@ -297,6 +309,12 @@
       <div class="status-sub" id="resultSub"></div>
       <div class="center"><button class="action-btn" id="actionBtn" style="display:none;"></button></div>
     </div>
+    <div class="done-box" id="doneBox">
+      <div class="done-msg">Çevirme hakkınızı kullandınız.</div>
+      <div class="done-sub" id="doneSub"></div>
+      <button class="action-btn" id="newPersonBtn" style="display:none; margin-top:14px;"></button>
+      <div class="done-sub" id="deviceFull" style="display:none;">Bu cihazdan en fazla 3 kişi katılabilir. Başka kişiler kendi telefonlarından katılabilir.</div>
+    </div>
     <div class="offline" id="offlineMsg">Bağlantı yeniden deneniyor...</div>
   </div>
 
@@ -306,11 +324,21 @@
 <script>
 var WC = window.WheelCore;
 var $ = function (id) { return document.getElementById(id); };
-var LS = { token: 'isc_token', name: 'isc_name', last: 'isc_last', waiting: 'isc_waiting' };
+var LS = { token: 'isc_token', name: 'isc_name', last: 'isc_last', waiting: 'isc_waiting', device: 'isc_device' };
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
+// Cihaz kimliği: tarayıcıda kalıcı; sunucu cihaz başına en fazla 3 kayıt kabul eder.
+function deviceId() {
+  var id = lsGet(LS.device);
+  if (!id || !/^[A-Za-z0-9-]{16,64}$/.test(id)) {
+    id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('d' + Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+    lsSet(LS.device, id);
+  }
+  return id;
+}
+var deviceLeft = 3;
 var slices = [];
 var participant = null;          // { name, token }
 var spinsLeft = 0;
@@ -344,7 +372,16 @@ function isValidPhone(phone) {
   else if (d.startsWith('0') && d.length === 11) d = d.slice(1);
   return /^5\d{9}$/.test(d);
 }
-function showFieldError(id, show) { $(id).classList.toggle('error', !!show); }
+function showFieldError(id, show, msg) {
+  var f = $(id), m = f.querySelector('.err-msg');
+  if (m) { if (!m.dataset.def) m.dataset.def = m.textContent; m.textContent = (show && msg) ? msg : m.dataset.def; }
+  f.classList.toggle('error', !!show);
+}
+var toastTimer = null;
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('on'); }, 9000);
+}
 function formError(msg) { var e = $('formErr'); e.textContent = msg || ''; e.classList.toggle('on', !!msg); }
 async function keepAwake(on) {
   try {
@@ -373,7 +410,26 @@ function showView(m) {
   $('resultScreen').style.display = m === 'form' ? 'none' : 'block';
   $('queueBox').style.display = m === 'waiting' ? 'block' : 'none';
   $('statusBox').style.display = m === 'waiting' ? 'none' : 'block';
+  $('doneBox').style.display = 'none';
   if (m !== 'spin') $('countdown').classList.remove('on');
+}
+
+// Hak bittiyse: net mesaj + (cihazda yer varsa) yeni kişi ekleme yolu
+function setDone() {
+  var on = spinsLeft <= 0 && (mode === 'result' || mode === 'ready');
+  $('doneBox').style.display = on ? 'block' : 'none';
+  if (!on) return;
+  var b = $('newPersonBtn');
+  b.style.display = deviceLeft > 0 ? 'inline-block' : 'none';
+  b.textContent = 'Yeni kişi ekle (' + deviceLeft + ' hak kaldı)';
+  b.onclick = newPerson;
+  $('deviceFull').style.display = deviceLeft > 0 ? 'none' : 'block';
+  $('doneSub').textContent = deviceLeft > 0 ? 'Yanınızdaki kişi de bu telefondan katılabilir.' : '';
+}
+function newPerson() {
+  forgetSession(); form.reset(); formError('');
+  ['fName', 'fCompany', 'fTitle', 'fPhone', 'fEmail'].forEach(function (id) { showFieldError(id, false); });
+  spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; window.scrollTo(0, 0);
 }
 function setChip() {
   $('spinsChip').textContent = 'Çevirme hakkı: ' + spinsLeft;
@@ -393,6 +449,7 @@ function showReady() {
   showView('ready'); setChip(); anim = null;
   if (spinsLeft > 0) { setStatus('', 'Çark seni bekliyor', '', 'Hazır olduğunda butona bas. Çark meşgulse sıraya alınırsın.'); setButton('🎡 Çarkı çevir', joinQueue); }
   else { setStatus('', '', '', ''); setButton(null); }
+  setDone();
 }
 
 function showResult(slice, left, quiet) {
@@ -413,6 +470,7 @@ function showResult(slice, left, quiet) {
   }
   if (again) setButton(slice.type === 'task' ? '✅ Görevi yaptım, tekrar çevir' : '🎡 Tekrar çevir', joinQueue);
   else setButton(null);
+  setDone();
   keepAwake(false);
 }
 
@@ -512,14 +570,14 @@ function frame(ts) {
 /* ---------- oturum ---------- */
 async function refreshMe() {
   try {
-    var r = await fetch('/api/me', { headers: { 'X-Participant-Token': participant.token } });
+    var r = await fetch('/api/me', { headers: { 'X-Participant-Token': participant.token, 'X-Device-Id': deviceId() } });
     if (r.status === 401) { forgetSession(); return null; }
-    var d = await r.json(); spinsLeft = d.spinsLeft; return d;
+    var d = await r.json(); spinsLeft = d.spinsLeft; if (typeof d.deviceLeft === 'number') deviceLeft = d.deviceLeft; return d;
   } catch (e) { return null; }
 }
 function forgetSession() {
   stopPolling(); keepAwake(false); anim = null; participant = null; spinsLeft = 0;
-  lsDel(LS.token); lsDel(LS.name); lsDel(LS.last);
+  lsDel(LS.token); lsDel(LS.name); lsDel(LS.last); lsDel(LS.waiting);
   showView('form'); document.getElementById('spinBtn').disabled = false;
 }
 $('leaveBtn').onclick = function () { stopPolling(); keepAwake(false); showReady(); };
@@ -540,19 +598,22 @@ async function resumeSession() {
   var waitedAt = parseInt(lsGet(LS.waiting) || '0', 10);
   if (spinsLeft > 0 && waitedAt && Date.now() - waitedAt < 18000) { joinQueue(); return true; }   // sıradayken yenilendi: yerini koru
   if (last && last.slice && (!me || me.spinsLeft === last.spinsLeft)) { showResult(last.slice, spinsLeft, true); return true; }
-  if (me && me.hasGift && me.prize) { showView('result'); setChip(); setStatus('🎉', 'TEBRİKLER!', me.prize, 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.'); setButton(spinsLeft > 0 ? '🎡 Çevir' : null, joinQueue); return true; }
+  if (me && me.hasGift && me.prize) { showView('result'); setChip(); setStatus('🎉', 'TEBRİKLER!', me.prize, 'Hediyeniz kaydedildi.<br>Yetkilimiz sizinle iletişime geçecek.'); setButton(spinsLeft > 0 ? '🎡 Çevir' : null, joinQueue); setDone(); return true; }
   showReady(); return true;
 }
 
 /* ---------- kayıt formu ---------- */
 var form = $('giftForm'), spinBtn = $('spinBtn');
+var FIELD_IDS = { name: 'fName', company: 'fCompany', title: 'fTitle', phone: 'fPhone', email: 'fEmail' };
 form.addEventListener('submit', async function (e) {
   e.preventDefault(); formError('');
   var fd = new FormData(form);
-  var name = fd.get('name').trim(), company = fd.get('company').trim(), phone = fd.get('phone').trim(), email = fd.get('email').trim();
+  var name = fd.get('name').trim(), company = fd.get('company').trim(), title = fd.get('title').trim(), phone = fd.get('phone').trim(), email = fd.get('email').trim();
   var bad = false;
+  Object.keys(FIELD_IDS).forEach(function (k) { showFieldError(FIELD_IDS[k], false); });
   showFieldError('fName', name.length < 3); if (name.length < 3) bad = true;
   showFieldError('fCompany', company.length < 2); if (company.length < 2) bad = true;
+  showFieldError('fTitle', title.length < 2); if (title.length < 2) bad = true;
   showFieldError('fPhone', !isValidPhone(phone)); if (!isValidPhone(phone)) bad = true;
   showFieldError('fEmail', !isValidEmail(email)); if (!isValidEmail(email)) bad = true;
   if (bad) return;
@@ -560,14 +621,18 @@ form.addEventListener('submit', async function (e) {
 
   spinBtn.disabled = true; spinBtn.textContent = 'Kayıt yapılıyor...';
   var reg;
-  try { reg = await postJSON('/api/register', { name: name, company: company, phone: phone, email: email, terms: true, consent: true }); }
+  try { reg = await postJSON('/api/register', { name: name, company: company, title: title, phone: phone, email: email, deviceId: deviceId(), terms: true, consent: true }); }
   catch (err) { formError('Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.'); spinBtn.disabled = false; spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; return; }
   if (!reg.ok || !reg.data.token) {
-    formError(reg.data.error || 'Kayıt yapılamadı, lütfen tekrar deneyin.');
+    var msg = reg.data.error || 'Kayıt yapılamadı, lütfen tekrar deneyin.';
+    if (reg.data.field && FIELD_IDS[reg.data.field]) showFieldError(FIELD_IDS[reg.data.field], true, msg);
+    formError(msg);
     spinBtn.disabled = false; spinBtn.textContent = '🎡 ÇARKI ÇEVİR'; return;
   }
-  participant = { name: name, token: reg.data.token };
-  lsSet(LS.token, participant.token); lsSet(LS.name, name); lsDel(LS.last);
+  participant = { name: reg.data.name || name, token: reg.data.token };
+  lsSet(LS.token, participant.token); lsSet(LS.name, participant.name); lsDel(LS.last);
+  if (typeof reg.data.deviceLeft === 'number') deviceLeft = reg.data.deviceLeft;
+  if (reg.data.warning) toast(reg.data.warning);
   spinsLeft = 1;
   await fetchSlices();
   joinQueue();               // form gönderimi aynı zamanda ilk basış: sıra bu andan sayılır
